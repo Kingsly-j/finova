@@ -61,9 +61,13 @@ function pinMatches(account: JsonRecord, pin: string) {
   const salt = text(account.transactionPinSalt, 128);
   const savedHash = text(account.transactionPinHash, 128);
   if (!salt || !/^[a-f0-9]{64}$/i.test(savedHash)) return false;
-  const actual = Buffer.from(pinHash(pin, salt), "hex");
-  const expected = Buffer.from(savedHash, "hex");
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
+  try {
+    const actual = Buffer.from(pinHash(pin, salt), "hex");
+    const expected = Buffer.from(savedHash, "hex");
+    return actual.length === expected.length && timingSafeEqual(actual, expected);
+  } catch {
+    return false;
+  }
 }
 
 function requireTransactionPin(account: JsonRecord, supplied: unknown) {
@@ -378,7 +382,12 @@ export async function setAccountTransactionPin(actor: DemoActor, accountId: stri
 
 export async function verifyAccountTransactionPin(actor: DemoActor, accountId: string, input: JsonRecord) {
   const snapshot = await ownedAccount(actor, accountId);
-  requireTransactionPin(record(snapshot.data()), input.pin);
+  const account = record(snapshot.data());
+  if (!text(account.transactionPinHash, 128)) {
+    throw new DemoBankError("Set a transaction PIN for this account before continuing.", 409);
+  }
+  const pin = transactionPin(input.pin);
+  if (!pinMatches(account, pin)) throw new DemoBankError("The transaction PIN is incorrect. If you no longer remember it, update it from Transaction PIN settings.", 403);
   return { verified: true };
 }
 
