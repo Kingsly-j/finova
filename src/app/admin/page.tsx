@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
 import { firebaseAuth } from "@/lib/firebase";
@@ -143,6 +143,10 @@ function EmptyState({ title, copy }: { title: string; copy: string }) {
 }
 
 export default function AdminPage() {
+  return <Suspense fallback={<main className={styles.adminShell} aria-busy="true" />}><AdminContent /></Suspense>;
+}
+
+function AdminContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [revealed, setRevealed] = useState(() => searchParams.get("access") === "finova");
