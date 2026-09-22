@@ -1,0 +1,32 @@
+rules_version = '2';
+
+// A user may upload one bounded proof file for a path they own. Proof review,
+// reads, signed URLs, and all balance changes occur only via Firebase Admin.
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function owns(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    match /deposit-proofs/{userId}/{depositId}/{fileName} {
+      allow create: if owns(userId)
+        && request.resource.size > 0
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType in [
+          'application/pdf',
+          'image/jpeg',
+          'image/png',
+          'image/webp'
+        ];
+      allow read, update, delete: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
