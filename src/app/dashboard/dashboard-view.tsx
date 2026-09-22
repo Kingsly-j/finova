@@ -36,6 +36,7 @@ export default function Dashboard({ section = "" }: { section?: string }) {
   const [loginPin, setLoginPin] = useState("");
   const [pinError, setPinError] = useState("");
   const [pinBusy, setPinBusy] = useState(false);
+  const [isAdministrator, setIsAdministrator] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const pinDialog = useRef<HTMLDialogElement>(null);
   const primaryAccount = workspace.accounts[0];
@@ -46,6 +47,14 @@ export default function Dashboard({ section = "" }: { section?: string }) {
   }, [ready, router, user]);
   useEffect(() => { if (modal) dialog.current?.showModal(); else dialog.current?.close(); }, [modal]);
   useEffect(() => { if (needsSignInPin) pinDialog.current?.showModal(); else pinDialog.current?.close(); }, [needsSignInPin]);
+  useEffect(() => {
+    let active = true;
+    if (!user) { setIsAdministrator(false); return () => { active = false; }; }
+    void user.getIdToken().then(token => fetch("/api/demo/admin-access", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }))
+      .then(response => { if (active) setIsAdministrator(response.ok); })
+      .catch(() => { if (active) setIsAdministrator(false); });
+    return () => { active = false; };
+  }, [user]);
 
   if (!ready) return <main className={s.loading}>Loading your Finova account…</main>;
   if (!user) return <main className={s.loading}>Taking you to secure sign in…</main>;
@@ -101,7 +110,7 @@ export default function Dashboard({ section = "" }: { section?: string }) {
       <nav className={s.navigation} aria-label="Banking navigation">
         {groups.map(group => <section key={group.title}><h2>{group.title}</h2>{group.items.map(([icon, label]) => <button key={label} className={selected(label) ? s.selected : ""} onClick={() => open(label)}><span className={s.navIcon}><Icon name={icon} /></span><span>{label}</span>{selected(label) && <span className={s.selectedDot} />}</button>)}</section>)}
       </nav>
-      <div className={s.profileDock}><div className={s.profileCard}><div className={s.onlineAvatar}><Avatar name={profile.displayName} photoURL={profile.photoURL} /><b /></div><div><strong>{profile.displayName}</strong><span>{profile.email}</span></div><button aria-label="Sign out" onClick={() => { void signOut(firebaseAuth).then(() => router.replace("/banking?mode=login")).catch(() => setModal("Sign-out unavailable")); }}><Icon name="right-from-bracket" /></button></div></div>
+      <div className={s.profileDock}><div className={s.profileCard}><div className={s.onlineAvatar}><Avatar name={profile.displayName} photoURL={profile.photoURL} /><b /></div><div><strong>{profile.displayName}</strong><span>{profile.email}</span></div>{isAdministrator && <Link className={s.adminConsole} href="/admin?access=finova" aria-label="Open Admin Console"><Icon name="user-shield" /></Link>}<button aria-label="Sign out" onClick={() => { void signOut(firebaseAuth).then(() => router.replace("/banking?mode=login")).catch(() => setModal("Sign-out unavailable")); }}><Icon name="right-from-bracket" /></button></div></div>
     </aside>
     <div className={s.workspace}>
       <header className={s.header}><button className={s.mobileMenu} aria-label="Open navigation" aria-expanded={menu} onClick={() => setMenu(!menu)}><Icon name="bars" /></button><div className={s.heading}><h1>Dashboard</h1><p>Welcome back, {profile.firstName || profile.displayName}</p></div><div className={s.headerActions}><button aria-label={dark ? "Switch to light mode" : "Switch to dark mode"} onClick={() => setDark(!dark)}><Icon name={dark ? "sun" : "moon"} /></button><button aria-label="Notifications" onClick={() => open("Notifications")}><Icon name="bell" />{unread > 0 && <b>{unread > 9 ? "9+" : unread}</b>}</button><button className={s.userMenu} onClick={() => open("Account Information")}><Avatar name={profile.displayName} photoURL={profile.photoURL} /><span><strong>{profile.displayName}</strong><small>{profile.email}</small></span><Icon name="chevron-down" /></button></div></header>
