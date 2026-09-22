@@ -188,8 +188,6 @@ export default function Home() {
                     <span>Mobile App</span>
                     <i className="fa-solid fa-chevron-right ml-auto text-xs opacity-0 group-hover:opacity-100 transition-all duration-300"></i>
                 </a>
-                
-                
                 <div className="pt-4 mt-4 border-t border-primary-700/50">
                     
 

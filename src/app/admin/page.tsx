@@ -254,14 +254,14 @@ function AdminContent() {
 
   if (!revealed) return <HiddenAdminGate />;
   if (!authReady) return <AdminGate title="Opening the control center" copy="Checking your secure Finova session…" loading />;
-  if (!user) return <AdminGate title="Admin sign-in required" copy="Sign in with an administrator account to access the Finova demo control center." />;
-  if (accessDenied) return <AdminGate title="Administrator access required" copy="This signed-in account does not have permission to operate the Finova demo control center." signedIn onSignOut={() => void signOutAdmin()} />;
+  if (!user) return <AdminGate title="Admin sign-in required" copy="Sign in with an administrator account to access the Finova control center." />;
+  if (accessDenied) return <AdminGate title="Administrator access required" copy="This signed-in account does not have permission to operate the Finova control center." signedIn onSignOut={() => void signOutAdmin()} />;
 
   return (
     <main className={styles.shell}>
       <aside className={styles.sidebar}>
         <a className={styles.brand} href="/dashboard" aria-label="Finova dashboard home"><img src="/finova-bank-logo-cropped.png" alt="Finova Bank" /></a>
-        <div className={styles.workspaceLabel}><span /> Demo operations</div>
+        <div className={styles.workspaceLabel}><span /> Operations</div>
         <nav className={styles.nav} aria-label="Admin sections">
           {tabs.map(tab => <button key={tab.id} className={activeTab === tab.id ? styles.navActive : ""} onClick={() => setActiveTab(tab.id)}><i aria-hidden="true">{tab.icon}</i><span>{tab.label}</span>{["deposits", "transfers", "cards"].includes(tab.id) && pendingCount > 0 ? <em>{tab.id === "deposits" ? deposits.filter(item => getStatus(item) === "pending").length : tab.id === "transfers" ? transfers.filter(item => getStatus(item) === "pending").length : cards.filter(item => getStatus(item) === "pending").length}</em> : null}</button>)}
         </nav>
@@ -274,17 +274,16 @@ function AdminContent() {
       <section className={styles.content}>
         <header className={styles.topbar}>
           <div><p className={styles.eyebrow}>Finova / Admin</p><h1>{tabs.find(tab => tab.id === activeTab)?.label}</h1></div>
-          <div className={styles.topbarActions}><span className={styles.demoPill}><b /> DEMO / SANDBOX</span><button className={styles.refresh} onClick={() => void refresh()} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button></div>
+          <div className={styles.topbarActions}><span className={styles.demoPill}><b /> SECURE SESSION</span><button className={styles.refresh} onClick={() => void refresh()} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button></div>
         </header>
 
-        <div className={styles.sandboxNotice}><span aria-hidden="true">◆</span><p><strong>Simulation environment.</strong> No connected bank rails, cards, or payment processors are used here. Approvals are recorded and processed on the secure server for demonstration accounts only.</p></div>
         {error && <div className={styles.error} role="alert"><span>!</span><p>{error}</p><button onClick={() => setError("")} aria-label="Dismiss message">×</button></div>}
 
         {loading && !overview ? <LoadingPanel /> : <>
           {activeTab === "overview" && <OverviewSection summary={summary} settings={settings} currency={currency} pendingCount={pendingCount} onSettingsSaved={refresh} />}
-          {activeTab === "deposits" && <ReviewSection kind="deposits" title="Pending deposit reviews" copy="Review the submitted payment evidence before the server credits a demo account." items={deposits} currency={currency} actionKey={actionKey} notes={notes} setNotes={setNotes} onDecide={decide} />}
-          {activeTab === "transfers" && <ReviewSection kind="transfers" title="Internal transfer reviews" copy="These requests represent Finova-to-Finova demo transfers. Service charges are calculated by the server." items={transfers} currency={currency} actionKey={actionKey} notes={notes} setNotes={setNotes} onDecide={decide} />}
-          {activeTab === "cards" && <ReviewSection kind="cards" title="Card application reviews" copy="Demo cards are issued only after review. They are not connected to an external card network." items={cards} currency={currency} actionKey={actionKey} notes={notes} setNotes={setNotes} onDecide={decide} />}
+          {activeTab === "deposits" && <ReviewSection kind="deposits" title="Pending deposit reviews" copy="Review submitted payment evidence before the server credits the selected account." items={deposits} currency={currency} actionKey={actionKey} notes={notes} setNotes={setNotes} onDecide={decide} />}
+          {activeTab === "transfers" && <ReviewSection kind="transfers" title="Internal transfer reviews" copy="Review Finova-to-Finova transfer requests. Service charges are calculated by the server." items={transfers} currency={currency} actionKey={actionKey} notes={notes} setNotes={setNotes} onDecide={decide} />}
+          {activeTab === "cards" && <ReviewSection kind="cards" title="Card application reviews" copy="Review card applications before they are issued." items={cards} currency={currency} actionKey={actionKey} notes={notes} setNotes={setNotes} onDecide={decide} />}
           {activeTab === "credits" && <ManualCredits accounts={accounts} currency={currency} onChanged={refresh} />}
           {activeTab === "methods" && <PaymentMethods methods={methods} onChanged={refresh} currency={currency} />}
         </>}
@@ -298,22 +297,22 @@ function HiddenAdminGate() {
 }
 
 function AdminGate({ title, copy, loading, signedIn, onSignOut }: { title: string; copy: string; loading?: boolean; signedIn?: boolean; onSignOut?: () => void }) {
-  return <main className={styles.gate}><section><a href="/" className={styles.gateBrand}><img src="/finova-bank-logo-cropped.png" alt="Finova Bank" /></a><span className={styles.gateIcon}>{loading ? "◌" : "◆"}</span><p className={styles.eyebrow}>FINOVA DEMO OPERATIONS</p><h1>{title}</h1><p>{copy}</p>{loading ? <div className={styles.loadingLine}><i /></div> : <div className={styles.gateActions}><a href="/banking?mode=login">Go to sign in</a>{signedIn && <button onClick={onSignOut}>Sign out</button>}</div>}</section></main>;
+  return <main className={styles.gate}><section><a href="/" className={styles.gateBrand}><img src="/finova-bank-logo-cropped.png" alt="Finova Bank" /></a><span className={styles.gateIcon}>{loading ? "◌" : "◆"}</span><p className={styles.eyebrow}>FINOVA OPERATIONS</p><h1>{title}</h1><p>{copy}</p>{loading ? <div className={styles.loadingLine}><i /></div> : <div className={styles.gateActions}><a href="/banking?mode=login">Go to sign in</a>{signedIn && <button onClick={onSignOut}>Sign out</button>}</div>}</section></main>;
 }
 
 function LoadingPanel() {
-  return <div className={styles.loadingPanel}><div className={styles.spinner} /><strong>Loading protected operations data</strong><p>Establishing a secure connection to the Finova demo service.</p></div>;
+  return <div className={styles.loadingPanel}><div className={styles.spinner} /><strong>Loading protected operations data</strong><p>Establishing a secure connection to Finova services.</p></div>;
 }
 
-function OverviewSection({ summary, settings, currency, pendingCount, onSettingsSaved }: { summary: RecordValue; settings: RecordValue; currency: string; pendingCount: number; onSettingsSaved: () => Promise<void> }) {
+function LegacyOverviewSection({ summary, settings, currency, pendingCount, onSettingsSaved }: { summary: RecordValue; settings: RecordValue; currency: string; pendingCount: number; onSettingsSaved: () => Promise<void> }) {
   const cards = [
-    ["Registered users", readNumber(summary, "totalUsers"), "Accounts in the demo workspace", "users"],
+    ["Registered users", readNumber(summary, "totalUsers"), "Accounts in the workspace", "users"],
     ["Deposit reviews", readNumber(summary, "pendingDeposits"), "Awaiting payment verification", "deposits"],
     ["Transfer reviews", readNumber(summary, "pendingTransfers"), "Awaiting an admin decision", "transfers"],
     ["Card applications", readNumber(summary, "pendingCards"), "Awaiting issuance review", "cards"],
   ];
   return <div className={styles.sectionStack}>
-    <section className={styles.overviewHero}><div><span className={styles.liveDot} /><p>Control center</p><h2>{pendingCount ? `${pendingCount} review${pendingCount === 1 ? "" : "s"} need attention` : "Everything is up to date"}</h2><span>Use the review queues to verify demo deposits, internal transfers, and card requests. Server-side safeguards determine all account changes.</span></div><div className={styles.heroTotal}><small>Total demo balance</small><strong>{formatMoney(readNumber(summary, "totalDemoBalance"), currency)}</strong><span>Across all approved demo accounts</span></div></section>
+    <section className={styles.overviewHero}><div><span className={styles.liveDot} /><p>Control center</p><h2>{pendingCount ? `${pendingCount} review${pendingCount === 1 ? "" : "s"} need attention` : "Everything is up to date"}</h2><span>Use the review queues to verify deposits, internal transfers, and card requests. Server-side safeguards determine all account changes.</span></div><div className={styles.heroTotal}><small>Total account balance</small><strong>{formatMoney(readNumber(summary, "totalDemoBalance"), currency)}</strong><span>Across all approved accounts</span></div></section>
     <div className={styles.metricGrid}>{cards.map(([label, value, copy, tone]) => <Card key={String(label)} className={styles.metric}><div className={`${styles.metricIcon} ${styles[`metric${String(tone).charAt(0).toUpperCase()}${String(tone).slice(1)}`]}`} aria-hidden="true">{tone === "users" ? "◉" : tone === "deposits" ? "↓" : tone === "transfers" ? "⇄" : "▣"}</div><p>{label}</p><strong>{Number(value).toLocaleString()}</strong><span>{copy}</span></Card>)}</div>
     <div className={styles.twoColumn}>
       <Card className={styles.controlCard}><div className={styles.cardHeading}><div><p className={styles.eyebrow}>Demo safeguards</p><h2>Operating boundaries</h2></div><span className={styles.safeBadge}>Server verified</span></div><ul className={styles.guardrails}><li><i>✓</i><span><strong>Manual review required</strong><small>Deposits, transfers, and card applications remain pending until an administrator decides.</small></span></li><li><i>✓</i><span><strong>No external banking rails</strong><small>All balances, cards, and payment methods operate only within this sandbox.</small></span></li><li><i>✓</i><span><strong>Audit-friendly workflow</strong><small>The client asks the server to perform a decision; it never calculates or changes balances itself.</small></span></li></ul></Card>
@@ -322,7 +321,7 @@ function OverviewSection({ summary, settings, currency, pendingCount, onSettings
   </div>;
 }
 
-function SettingsPanel({ settings, currency, onSaved }: { settings: RecordValue; currency: string; onSaved: () => Promise<void> }) {
+function LegacySettingsPanel({ settings, currency, onSaved }: { settings: RecordValue; currency: string; onSaved: () => Promise<void> }) {
   const [cardFee, setCardFee] = useState(String(readNumber(settings, "cardFee")));
   const [transferFee, setTransferFee] = useState(String(readNumber(settings, "internalTransferServiceCharge")));
   const [selectedCurrency, setSelectedCurrency] = useState(currency);
@@ -344,10 +343,10 @@ function SettingsPanel({ settings, currency, onSaved }: { settings: RecordValue;
     setBusy(true);
     try {
       await adminRequest("/api/admin/settings", { method: "POST", body: JSON.stringify({ cardFee: parsedCardFee, internalTransferServiceCharge: parsedTransferFee, currency: selectedCurrency.toUpperCase() }) });
-      setMessage("Demo controls saved.");
+      setMessage("Controls saved.");
       await onSaved();
     } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : "The demo controls could not be saved.");
+      setMessage(caught instanceof Error ? caught.message : "The controls could not be saved.");
     } finally {
       setBusy(false);
     }
@@ -356,14 +355,59 @@ function SettingsPanel({ settings, currency, onSaved }: { settings: RecordValue;
   return <Card className={styles.settingsCard}><div className={styles.cardHeading}><div><p className={styles.eyebrow}>Configuration</p><h2>Demo controls</h2></div><span className={styles.demoSmall}>SANDBOX</span></div><form onSubmit={submit} className={styles.settingsForm}><label>Demo card fee<div className={styles.inputWithPrefix}><span>{currency}</span><input value={cardFee} onChange={event => setCardFee(event.target.value)} type="number" min="0" step="0.01" /></div></label><label>Internal transfer service charge<div className={styles.inputWithPrefix}><span>{currency}</span><input value={transferFee} onChange={event => setTransferFee(event.target.value)} type="number" min="0" step="0.01" /></div></label><label>Display currency<select value={selectedCurrency} onChange={event => setSelectedCurrency(event.target.value)}><option value="USD">USD</option><option value="NGN">NGN</option><option value="GBP">GBP</option><option value="EUR">EUR</option></select></label><button className={styles.primaryButton} disabled={busy}>{busy ? "Saving…" : "Save controls"}</button>{message && <p className={styles.formMessage}>{message}</p>}</form></Card>;
 }
 
-function ReviewSection({ kind, title, copy, items, currency, actionKey, notes, setNotes, onDecide }: { kind: "deposits" | "transfers" | "cards"; title: string; copy: string; items: RecordValue[]; currency: string; actionKey: string; notes: Record<string, string>; setNotes: React.Dispatch<React.SetStateAction<Record<string, string>>>; onDecide: (kind: "deposits" | "transfers" | "cards", item: RecordValue, action: Decision) => Promise<void> }) {
+function OverviewSection({ summary, settings, currency, pendingCount, onSettingsSaved }: { summary: RecordValue; settings: RecordValue; currency: string; pendingCount: number; onSettingsSaved: () => Promise<void> }) {
+  const cards = [
+    ["Registered users", readNumber(summary, "totalUsers"), "Accounts in the workspace"],
+    ["Deposit reviews", readNumber(summary, "pendingDeposits"), "Awaiting payment verification"],
+    ["Transfer reviews", readNumber(summary, "pendingTransfers"), "Awaiting an administrator decision"],
+    ["Card applications", readNumber(summary, "pendingCards"), "Awaiting issuance review"],
+  ];
+  return <div className={styles.sectionStack}>
+    <section className={styles.overviewHero}><div><span className={styles.liveDot} /><p>Control center</p><h2>{pendingCount ? `${pendingCount} review${pendingCount === 1 ? "" : "s"} need attention` : "Everything is up to date"}</h2><span>Use the review queues to verify deposits, internal transfers, and card requests. Server-side safeguards determine all account changes.</span></div><div className={styles.heroTotal}><small>Total account balance</small><strong>{formatMoney(readNumber(summary, "totalDemoBalance"), currency)}</strong><span>Across all approved accounts</span></div></section>
+    <div className={styles.metricGrid}>{cards.map(([label, value, copy]) => <Card key={String(label)} className={styles.metric}><p>{label}</p><strong>{Number(value).toLocaleString()}</strong><span>{copy}</span></Card>)}</div>
+    <div className={styles.twoColumn}><Card className={styles.controlCard}><div className={styles.cardHeading}><div><p className={styles.eyebrow}>Control safeguards</p><h2>Operating controls</h2></div><span className={styles.safeBadge}>Server verified</span></div><ul className={styles.guardrails}><li><i>✓</i><span><strong>Manual review required</strong><small>Deposits, transfers, and card applications remain pending until an administrator decides.</small></span></li><li><i>✓</i><span><strong>Managed processing</strong><small>Account balances, cards, and payment methods are managed through this workspace.</small></span></li><li><i>✓</i><span><strong>Audit-friendly workflow</strong><small>The client asks the server to perform a decision; it never calculates or changes balances itself.</small></span></li></ul></Card><SettingsPanel settings={settings} currency={currency} onSaved={onSettingsSaved} /></div>
+  </div>;
+}
+
+function SettingsPanel({ settings, currency, onSaved }: { settings: RecordValue; currency: string; onSaved: () => Promise<void> }) {
+  const [cardFee, setCardFee] = useState(String(readNumber(settings, "cardFee")));
+  const [transferFee, setTransferFee] = useState(String(readNumber(settings, "internalTransferServiceCharge")));
+  const [selectedCurrency, setSelectedCurrency] = useState(currency);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  useEffect(() => { setCardFee(String(readNumber(settings, "cardFee"))); setTransferFee(String(readNumber(settings, "internalTransferServiceCharge"))); setSelectedCurrency(currency); }, [currency, settings]);
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); setMessage("");
+    const nextCardFee = Number(cardFee); const nextTransferFee = Number(transferFee);
+    if (!Number.isFinite(nextCardFee) || nextCardFee < 0 || !Number.isFinite(nextTransferFee) || nextTransferFee < 0) return setMessage("Enter zero or a positive number for each fee.");
+    setBusy(true);
+    try { await adminRequest("/api/admin/settings", { method: "POST", body: JSON.stringify({ cardFee: nextCardFee, internalTransferServiceCharge: nextTransferFee, currency: selectedCurrency.toUpperCase() }) }); setMessage("Controls saved."); await onSaved(); }
+    catch (caught) { setMessage(caught instanceof Error ? caught.message : "The controls could not be saved."); }
+    finally { setBusy(false); }
+  };
+  return <Card className={styles.settingsCard}><div className={styles.cardHeading}><div><p className={styles.eyebrow}>Configuration</p><h2>Operational controls</h2></div><span className={styles.demoSmall}>MANAGED</span></div><form onSubmit={submit} className={styles.settingsForm}><label>Card fee<div className={styles.inputWithPrefix}><span>{currency}</span><input value={cardFee} onChange={event => setCardFee(event.target.value)} type="number" min="0" step="0.01" /></div></label><label>Internal transfer service charge<div className={styles.inputWithPrefix}><span>{currency}</span><input value={transferFee} onChange={event => setTransferFee(event.target.value)} type="number" min="0" step="0.01" /></div></label><label>Display currency<select value={selectedCurrency} onChange={event => setSelectedCurrency(event.target.value)}><option value="USD">USD</option><option value="NGN">NGN</option><option value="GBP">GBP</option><option value="EUR">EUR</option></select></label><button className={styles.primaryButton} disabled={busy}>{busy ? "Saving..." : "Save controls"}</button>{message && <p className={styles.formMessage}>{message}</p>}</form></Card>;
+}
+
+function LegacyReviewSection({ kind, title, copy, items, currency, actionKey, notes, setNotes, onDecide }: { kind: "deposits" | "transfers" | "cards"; title: string; copy: string; items: RecordValue[]; currency: string; actionKey: string; notes: Record<string, string>; setNotes: React.Dispatch<React.SetStateAction<Record<string, string>>>; onDecide: (kind: "deposits" | "transfers" | "cards", item: RecordValue, action: Decision) => Promise<void> }) {
   const pending = items.filter(item => getStatus(item) === "pending");
   const closed = items.filter(item => getStatus(item) !== "pending");
   return <div className={styles.sectionStack}><section className={styles.sectionHeading}><div><p className={styles.eyebrow}>Review queue</p><h2>{title}</h2><span>{copy}</span></div><div className={styles.queueNumber}><strong>{pending.length}</strong><span>open request{pending.length === 1 ? "" : "s"}</span></div></section><Card className={styles.reviewCard}>{pending.length ? <div className={styles.reviewList}>{pending.map(item => <ReviewItem key={readString(item, "id", "requestId") || JSON.stringify(item)} kind={kind} item={item} currency={currency} note={notes[`${kind}-${readString(item, "id", "requestId")}`] || ""} onNote={value => setNotes(current => ({ ...current, [`${kind}-${readString(item, "id", "requestId")}`]: value }))} actionKey={actionKey} onDecide={onDecide} />)}</div> : <EmptyState title="No pending reviews" copy="New sandbox requests will appear here once a user submits them." />}</Card>{closed.length > 0 && <Card className={styles.historyCard}><div className={styles.cardHeading}><div><p className={styles.eyebrow}>Recent decisions</p><h2>Previously reviewed</h2></div><span>{closed.length} total</span></div><div className={styles.compactList}>{closed.slice(0, 8).map(item => <div key={readString(item, "id", "requestId") || JSON.stringify(item)}><span><strong>{reviewTitle(kind, item)}</strong><small>{formatDate(item.createdAt || item.updatedAt)}</small></span><b>{formatMoney(readNumber(item, "amount", "total", "fee"), readString(item, "currency") || currency)}</b><Status value={getStatus(item)} /></div>)}</div></Card>}</div>;
 }
 
+function ReviewSection({ kind, title, copy, items, currency, actionKey, notes, setNotes, onDecide }: { kind: "deposits" | "transfers" | "cards"; title: string; copy: string; items: RecordValue[]; currency: string; actionKey: string; notes: Record<string, string>; setNotes: React.Dispatch<React.SetStateAction<Record<string, string>>>; onDecide: (kind: "deposits" | "transfers" | "cards", item: RecordValue, action: Decision) => Promise<void> }) {
+  const pending = items.filter(item => getStatus(item) === "pending");
+  return <div className={styles.sectionStack}><section className={styles.sectionHeading}><div><p className={styles.eyebrow}>Review queue</p><h2>{title}</h2><span>{copy}</span></div><div className={styles.queueNumber}><strong>{pending.length}</strong><span>open request{pending.length === 1 ? "" : "s"}</span></div></section><Card className={styles.reviewCard}>{pending.length ? <div className={styles.reviewList}>{pending.map(item => <CleanReviewItem key={readString(item, "id", "requestId")} kind={kind} item={item} currency={currency} note={notes[`${kind}-${readString(item, "id", "requestId")}`] || ""} onNote={value => setNotes(current => ({ ...current, [`${kind}-${readString(item, "id", "requestId")}`]: value }))} actionKey={actionKey} onDecide={onDecide} />)}</div> : <EmptyState title="No pending reviews" copy="New requests will appear here once a user submits them." />}</Card></div>;
+}
+
+function CleanReviewItem({ kind, item, currency, note, onNote, actionKey, onDecide }: { kind: "deposits" | "transfers" | "cards"; item: RecordValue; currency: string; note: string; onNote: (value: string) => void; actionKey: string; onDecide: (kind: "deposits" | "transfers" | "cards", item: RecordValue, action: Decision) => Promise<void> }) {
+  const id = readString(item, "id", "requestId");
+  const title = readString(item, "userName", "accountName", "senderName", "applicantName", "displayName", "email") || "Finova account";
+  const amount = formatMoney(readNumber(item, "amount", "total", "requestedAmount"), readString(item, "currency") || currency);
+  return <article className={styles.reviewItem}><div className={styles.requestTop}><div><p>{title}</p><small>{readString(item, "email", "userEmail", "senderEmail") || "User account"}</small></div><div className={styles.requestAmount}><strong>{amount}</strong><Status value={getStatus(item)} /></div></div><div className={styles.decisionBox}><label>Review note <span>(optional)</span><textarea value={note} onChange={event => onNote(event.target.value)} placeholder="Add a short decision note" rows={2} /></label><div className={styles.decisionActions}><button className={styles.rejectButton} onClick={() => void onDecide(kind, item, "reject")} disabled={Boolean(actionKey)}>Reject</button><button className={styles.approveButton} onClick={() => void onDecide(kind, item, "approve")} disabled={Boolean(actionKey)}>{actionKey === `${kind}-${id}-approve` ? "Approving..." : "Approve request"}</button></div></div></article>;
+}
+
 function reviewTitle(kind: "deposits" | "transfers" | "cards", item: RecordValue) {
-  const person = readString(item, "userName", "accountName", "senderName", "applicantName", "displayName", "email") || "Demo account";
+  const person = readString(item, "userName", "accountName", "senderName", "applicantName", "displayName", "email") || "Finova account";
   if (kind === "deposits") return `${person} · ${readString(item, "paymentMethodName", "paymentMethod", "method") || "Deposit"}`;
   if (kind === "transfers") return `${person} → ${readString(item, "recipientName", "toName", "recipientEmail") || "Finova account"}`;
   return `${person} · ${readString(item, "cardType", "type") || "Card request"}`;
@@ -402,7 +446,7 @@ function ManualCredits({ accounts, currency, onChanged }: { accounts: RecordValu
         method: "POST",
         body: JSON.stringify({ accountId, amount: numericAmount, reason: reason.trim(), requestKey: crypto.randomUUID().replaceAll("-", "_") }),
       });
-      setAmount(""); setReason(""); setMessage("Manual demo credit recorded. The account balance and immutable ledger have been updated.");
+      setAmount(""); setReason(""); setMessage("Manual account credit recorded. The account balance and immutable ledger have been updated.");
       await onChanged();
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : "The manual credit could not be applied.");
