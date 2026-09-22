@@ -49,7 +49,7 @@ function text(value: unknown, maximum = 160) {
 
 function transactionPin(value: unknown, label = "Transaction PIN") {
   const pin = typeof value === "string" ? value.replace(/\s+/g, "") : "";
-  if (!/^\d{4,6}$/.test(pin)) throw new DemoBankError(`${label} must be 4 to 6 digits.`);
+  if (!/^\d{4}$/.test(pin)) throw new DemoBankError(`${label} must be exactly 4 digits.`);
   return pin;
 }
 

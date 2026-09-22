@@ -17,6 +17,7 @@ const groups = [
   { title: "SERVICES", items: [["hand-holding-dollar", "Loans"], ["receipt", "Tax Refund"], ["seedling", "Grants"]] },
   { title: "ACCOUNT", items: [["gear", "Settings"], ["headset", "Support"]] },
 ] as const;
+const INACTIVITY_LOCK_MS = 15 * 60 * 1000;
 
 function Icon({ name }: { name: string }) { return <i aria-hidden="true" className={`fa-solid fa-${name}`} />; }
 function initials(name: string) { return name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "F"; }
@@ -32,21 +33,40 @@ export default function Dashboard({ section = "" }: { section?: string }) {
   const [hidden, setHidden] = useState(false);
   const [modal, setModal] = useState("");
   const [opening, setOpening] = useState(false);
-  const [verifiedAccountIds, setVerifiedAccountIds] = useState<string[]>([]);
+  const [inactiveLocked, setInactiveLocked] = useState(false);
   const [loginPin, setLoginPin] = useState("");
   const [pinError, setPinError] = useState("");
   const [pinBusy, setPinBusy] = useState(false);
   const [isAdministrator, setIsAdministrator] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const pinDialog = useRef<HTMLDialogElement>(null);
+  const activityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inactiveLockRef = useRef(false);
   const primaryAccount = workspace.accounts[0];
-  const needsSignInPin = Boolean(ready && user && primaryAccount && !verifiedAccountIds.includes(primaryAccount.id) && (primaryAccount.pinConfigured || section !== "transaction-pin"));
+  const needsSignInPin = Boolean(ready && user && primaryAccount?.pinConfigured && inactiveLocked);
 
   useEffect(() => {
     if (ready && !user) router.replace("/banking?mode=login");
   }, [ready, router, user]);
   useEffect(() => { if (modal) dialog.current?.showModal(); else dialog.current?.close(); }, [modal]);
   useEffect(() => { if (needsSignInPin) pinDialog.current?.showModal(); else pinDialog.current?.close(); }, [needsSignInPin]);
+  useEffect(() => {
+    inactiveLockRef.current = Boolean(user && primaryAccount?.pinConfigured);
+    setInactiveLocked(Boolean(user && primaryAccount?.pinConfigured));
+  }, [primaryAccount?.id, primaryAccount?.pinConfigured, user]);
+  useEffect(() => {
+    if (!user || !primaryAccount?.pinConfigured || inactiveLocked) return;
+    const lock = () => { inactiveLockRef.current = true; setInactiveLocked(true); };
+    const reset = () => {
+      if (inactiveLockRef.current) return;
+      if (activityTimer.current) clearTimeout(activityTimer.current);
+      activityTimer.current = setTimeout(lock, INACTIVITY_LOCK_MS);
+    };
+    const events: Array<keyof WindowEventMap> = ["pointerdown", "keydown", "touchstart", "scroll"];
+    events.forEach(event => window.addEventListener(event, reset, { passive: true }));
+    reset();
+    return () => { if (activityTimer.current) clearTimeout(activityTimer.current); events.forEach(event => window.removeEventListener(event, reset)); };
+  }, [inactiveLocked, primaryAccount?.id, primaryAccount?.pinConfigured, user]);
   useEffect(() => {
     let active = true;
     if (!user) { setIsAdministrator(false); return () => { active = false; }; }
@@ -94,10 +114,13 @@ export default function Dashboard({ section = "" }: { section?: string }) {
   const verifySignInPin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!primaryAccount) return;
+    const pin = String(new FormData(event.currentTarget).get("pin") || "").replace(/\D/g, "").slice(0, 4);
+    if (pin.length !== 4) return setPinError("Enter your four-digit transaction PIN.");
     setPinError(""); setPinBusy(true);
     try {
-      await verifyTransactionPin({ accountId: primaryAccount.id, pin: loginPin });
-      setVerifiedAccountIds(current => [...current, primaryAccount.id]);
+      await verifyTransactionPin({ accountId: primaryAccount.id, pin });
+      inactiveLockRef.current = false;
+      setInactiveLocked(false);
       setLoginPin("");
     } catch (caught) { setPinError(caught instanceof Error ? caught.message : "We could not verify your transaction PIN."); }
     finally { setPinBusy(false); }
@@ -142,7 +165,7 @@ export default function Dashboard({ section = "" }: { section?: string }) {
       </main>
     </div>
     <dialog ref={dialog} className={s.dialog} onCancel={() => setModal("")} onClick={event => { if (event.target === event.currentTarget) setModal(""); }}><div><button className={s.close} aria-label="Close dialog" onClick={() => setModal("")}><Icon name="xmark" /></button><h2>{modal}</h2>{modal === "Account Information" ? <dl><dt>Account holder</dt><dd>{profile.displayName}</dd><dt>Bank</dt><dd>Finova Bank</dd><dt>Account number</dt><dd>{maskedNumber(account?.number)}</dd><dt>Currency</dt><dd>{currency}</dd></dl> : modal === "Open Account" ? <form onSubmit={openAccount}><label>Account type<select name="type" defaultValue="Savings Account"><option>Checking Account</option><option>Savings Account</option><option>Business Account</option><option>Investment Account</option></select></label><label>Currency<select name="currency" defaultValue={currency}><option>USD</option><option>NGN</option><option>GBP</option><option>EUR</option></select></label><p>Submit an additional-account request. A secure onboarding service creates financial accounts after review.</p><button disabled={opening}>{opening ? "Submitting…" : "Submit request"}</button></form> : <p>{modal === "Account opening submitted" ? "Your additional-account request was saved. You will receive an account update after review." : modal === "Sign-out unavailable" ? "We could not sign you out. Please try again." : "This action is available from the selected Finova account page."}</p>}</div></dialog>
-    <dialog ref={pinDialog} className={`${s.dialog} ${s.pinDialog}`} onCancel={event => event.preventDefault()}><div>{primaryAccount?.pinConfigured ? <><span className={s.pinDialogIcon}><Icon name="key" /></span><h2>Verify your transaction PIN</h2><p>Enter the PIN for {primaryAccount.name} to finish signing in. You’ll also use this PIN to authorize transactions.</p><form onSubmit={verifySignInPin}><label>Transaction PIN<input value={loginPin} onChange={event => setLoginPin(event.target.value.replace(/\D/g, "").slice(0, 6))} type="password" inputMode="numeric" autoComplete="off" placeholder="Enter 4–6 digits" required /></label>{pinError && <p className={s.pinError}>{pinError}</p>}<button disabled={pinBusy}>{pinBusy ? "Verifying…" : "Verify and continue"}</button></form></> : <><span className={s.pinDialogIcon}><Icon name="shield-halved" /></span><h2>Set your transaction PIN</h2><p>Each Finova account uses a unique PIN to protect payments and transfers after you sign in.</p><button onClick={() => router.push("/dashboard/transaction-pin")}>Set transaction PIN</button></>}<button className={s.pinSignOut} onClick={() => { void signOut(firebaseAuth).then(() => router.replace("/banking?mode=login")); }}>Sign out</button></div></dialog>
+    <dialog ref={pinDialog} className={`${s.dialog} ${s.pinDialog}`} onCancel={event => event.preventDefault()}><div><span className={s.pinDialogIcon}><Icon name="key" /></span><h2>Verify your transaction PIN</h2><p>Enter the four-digit PIN for {primaryAccount?.name} to continue.</p><form onSubmit={verifySignInPin}><label>Transaction PIN<input className={s.pinDots} name="pin" value={loginPin} onChange={event => { const pin = event.target.value.replace(/\D/g, "").slice(0, 4); const form = event.currentTarget.form; setLoginPin(pin); if (pin.length === 4) queueMicrotask(() => form?.requestSubmit()); }} type="password" inputMode="numeric" autoComplete="off" maxLength={4} placeholder="••••" required /></label>{pinError && <p className={s.pinError}>{pinError}</p>}<button disabled={pinBusy}>{pinBusy ? "Verifying…" : "Verify and continue"}</button></form><button className={s.pinSignOut} onClick={() => { void signOut(firebaseAuth).then(() => router.replace("/banking?mode=login")); }}>Sign out</button></div></dialog>
   </div>;
 }
 

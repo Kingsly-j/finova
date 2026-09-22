@@ -39,7 +39,7 @@ function PinField({ value, onChange, account }: { value: string; onChange: (valu
   if (!account?.pinConfigured) {
     return <Notice tone="warning"><strong>Set a transaction PIN first.</strong> Each Finova account uses its own PIN to approve transfers and payment requests. <Link href={href("transaction-pin")}>Set your PIN</Link></Notice>;
   }
-  return <label className={s.field}>Transaction PIN <b>*</b><input aria-label="Transaction PIN" value={value} onChange={event => onChange(event.target.value.replace(/\D/g, "").slice(0, 6))} type="password" inputMode="numeric" autoComplete="off" pattern="[0-9]{4,6}" placeholder="Enter 4–6 digit PIN" required /></label>;
+  return <label className={s.field}>Transaction PIN <b>*</b><input className={s.pinDots} aria-label="Transaction PIN" value={value} onChange={event => onChange(event.target.value.replace(/\D/g, "").slice(0, 4))} type="password" inputMode="numeric" autoComplete="off" pattern="[0-9]{4}" maxLength={4} placeholder="••••" required /></label>;
 }
 
 async function saveDraft(kind: string, description: string) {

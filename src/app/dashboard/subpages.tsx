@@ -238,11 +238,11 @@ function TransactionPinSettings() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const account = accounts.find(item => item.id === accountId) || accounts[0];
-  const digits = (value: string) => value.replace(/\D/g, "").slice(0, 6);
+  const digits = (value: string) => value.replace(/\D/g, "").slice(0, 4);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); setMessage("");
     if (!account) return;
-    if (!/^\d{4,6}$/.test(nextPin)) return setMessage("Your new PIN must contain 4 to 6 digits.");
+    if (!/^\d{4}$/.test(nextPin)) return setMessage("Your new PIN must contain exactly 4 digits.");
     if (nextPin !== confirmPin) return setMessage("The new PIN entries do not match.");
     setBusy(true);
     try {
