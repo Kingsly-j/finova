@@ -35,11 +35,18 @@ export function apiError(error: unknown) {
   }
   console.error("Finova API request failed", error);
   const firebaseCode = error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code || "") : "";
-  if (firebaseCode.includes("permission-denied") || firebaseCode.includes("PERMISSION_DENIED")) {
+  const firebaseMessage = error instanceof Error ? error.message : "";
+  if (firebaseCode === "7" || firebaseCode.includes("permission-denied") || firebaseCode.includes("PERMISSION_DENIED") || /permission.?denied/i.test(firebaseMessage)) {
     return Response.json({ error: "The server does not have permission to access Finova data. Check the Firebase Admin service-account configuration in Vercel." }, { status: 503 });
   }
-  if (firebaseCode.includes("unauthenticated") || firebaseCode.includes("UNAUTHENTICATED")) {
+  if (firebaseCode === "16" || firebaseCode.includes("unauthenticated") || firebaseCode.includes("UNAUTHENTICATED") || /unauthenticated|credentials?/i.test(firebaseMessage)) {
     return Response.json({ error: "The server could not authenticate with Firebase. Check the Firebase Admin service-account configuration in Vercel." }, { status: 503 });
+  }
+  if (firebaseCode === "5" || firebaseCode.includes("NOT_FOUND") || /database.*not found|not found.*database/i.test(firebaseMessage)) {
+    return Response.json({ error: "The configured Firebase project does not have the required Firestore database. Confirm the service-account project and Firestore setup." }, { status: 503 });
+  }
+  if (firebaseCode === "14" || firebaseCode.includes("UNAVAILABLE") || /service unavailable|network/i.test(firebaseMessage)) {
+    return Response.json({ error: "Firebase is temporarily unavailable. Please try again shortly." }, { status: 503 });
   }
   return Response.json({ error: "The Finova demo service could not complete that request." }, { status: 500 });
 }
