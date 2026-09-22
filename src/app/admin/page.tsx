@@ -126,9 +126,11 @@ async function adminRequest<T>(path: string, init?: RequestInit): Promise<T> {
   headers.set("Authorization", `Bearer ${token}`);
   if (init?.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const response = await fetch(path, { ...init, headers, cache: "no-store" });
-  const payload: unknown = await response.json().catch(() => null);
+  const raw = await response.text();
+  let payload: unknown = null;
+  try { payload = raw ? JSON.parse(raw) : null; } catch { payload = null; }
   if (!response.ok) {
-    const message = readString(asRecord(payload), "error", "message") || "The request could not be completed.";
+    const message = readString(asRecord(payload), "error", "message") || `The server could not complete this request (HTTP ${response.status}).`;
     throw new AdminApiError(message, response.status);
   }
   return payload as T;

@@ -34,5 +34,12 @@ export function apiError(error: unknown) {
     return Response.json({ error: "The Finova demo service has not been configured on this server." }, { status: 503 });
   }
   console.error("Finova API request failed", error);
+  const firebaseCode = error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code || "") : "";
+  if (firebaseCode.includes("permission-denied") || firebaseCode.includes("PERMISSION_DENIED")) {
+    return Response.json({ error: "The server does not have permission to access Finova data. Check the Firebase Admin service-account configuration in Vercel." }, { status: 503 });
+  }
+  if (firebaseCode.includes("unauthenticated") || firebaseCode.includes("UNAUTHENTICATED")) {
+    return Response.json({ error: "The server could not authenticate with Firebase. Check the Firebase Admin service-account configuration in Vercel." }, { status: 503 });
+  }
   return Response.json({ error: "The Finova demo service could not complete that request." }, { status: 500 });
 }
