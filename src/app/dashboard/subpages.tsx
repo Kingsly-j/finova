@@ -14,6 +14,7 @@ import {
   setTransactionPin,
   updateWorkspace,
   uploadDepositProof,
+  uploadProfilePhoto,
   useDashboardSession,
   useWorkspace,
   type Account,
@@ -211,7 +212,20 @@ function Settings({ section }: { section: string }) {
   if (section === "editpass") return <><Heading title="Password" description="Update your Firebase sign-in password" icon="lock" /><Panel className={s.narrow}><form onSubmit={changePassword}><Field label="Current password" name="currentPassword" type="password" /><Field label="New password" name="newPassword" type="password" /><Field label="Confirm new password" name="confirmPassword" type="password" />{error && <Note tone="error">{error}</Note>}{message && <Note tone="success">{message}</Note>}<Buttons><button className={s.primary}>Change password</button></Buttons></form></Panel></>;
   if (section === "manage-account-security") return <><Heading title="Email security" description="Verify your contact email" icon="shield-halved" /><Panel className={s.narrow}><h2>{user?.emailVerified ? "Email verified" : "Email verification"}</h2><p>{user?.emailVerified ? "Your sign-in email is verified." : `Verify ${profile.email} to improve account recovery.`}</p>{!user?.emailVerified && <Buttons><button className={s.primary} onClick={() => void sendEmailVerification(user!).then(() => setMessage("A verification email has been sent.")).catch(() => setError("We could not send a verification email."))}>Send verification email</button></Buttons>}{error && <Note tone="error">{error}</Note>}{message && <Note tone="success">{message}</Note>}</Panel></>;
   if (section === "transaction-pin") return <TransactionPinSettings />;
-  return <><Heading title="Profile settings" description="Manage your Finova account profile" icon="gear" /><Panel className={s.narrow}><form onSubmit={saveProfile}><div className={s.formGrid}><Field label="First name" name="firstName" defaultValue={profile.firstName} /><Field label="Last name" name="lastName" defaultValue={profile.lastName} /><Field label="Username" name="username" required={false} defaultValue={profile.username} /><Field label="Email address" name="email" defaultValue={profile.email} readOnly /><Field label="Phone number" name="phone" required={false} defaultValue={profile.phone} /><Field label="Country" name="country" required={false} options={countries as string[]} defaultValue={profile.country} /></div>{error && <Note tone="error">{error}</Note>}{message && <Note tone="success">{message}</Note>}<Buttons><button className={s.primary}>Save profile</button><Link className={s.secondary} href={href("editpass")}>Password</Link></Buttons></form></Panel></>;
+  return <><Heading title="Profile settings" description="Manage your Finova account profile" icon="gear" /><Panel className={s.narrow}><ProfilePhotoUpload photoURL={profile.photoURL} name={profile.displayName} onError={setError} onSuccess={setMessage} /><form onSubmit={saveProfile}><div className={s.formGrid}><Field label="First name" name="firstName" defaultValue={profile.firstName} /><Field label="Last name" name="lastName" defaultValue={profile.lastName} /><Field label="Username" name="username" required={false} defaultValue={profile.username} /><Field label="Email address" name="email" defaultValue={profile.email} readOnly /><Field label="Phone number" name="phone" required={false} defaultValue={profile.phone} /><Field label="Country" name="country" required={false} options={countries as string[]} defaultValue={profile.country} /></div>{error && <Note tone="error">{error}</Note>}{message && <Note tone="success">{message}</Note>}<Buttons><button className={s.primary}>Save profile</button><Link className={s.secondary} href={href("editpass")}>Password</Link></Buttons></form></Panel></>;
+}
+
+function ProfilePhotoUpload({ photoURL, name, onError, onSuccess }: { photoURL: string; name: string; onError: (message: string) => void; onSuccess: (message: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const initials = name.split(" ").filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "FM";
+  const change = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]; if (!file) return;
+    setBusy(true); onError("");
+    try { await uploadProfilePhoto(file); onSuccess("Your profile photo has been updated."); }
+    catch (error) { onError(apiMessage(error, "We could not upload your profile photo.")); }
+    finally { setBusy(false); event.target.value = ""; }
+  };
+  return <div className={s.profilePhotoEditor}><div className={s.profilePhoto}>{photoURL ? <img src={photoURL} alt="Profile photo" /> : initials}</div><div><h2>Profile photo</h2><p>Use a JPG, PNG, or WEBP image up to 5 MB.</p><label className={`${s.secondary} ${busy ? s.disabledUpload : ""}`}>{busy ? "Uploading…" : "Upload photo"}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={change} disabled={busy} /></label></div></div>;
 }
 
 function TransactionPinSettings() {

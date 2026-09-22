@@ -5,6 +5,7 @@ import type { User } from "firebase/auth";
 import { onAuthStateChanged } from "firebase/auth";
 import { ref, uploadBytes } from "firebase/storage";
 import { firebaseAuth, firebaseStorage } from "@/lib/firebase";
+import { SUPABASE_PROFILE_PHOTO_BUCKET, supabase } from "@/lib/supabase";
 
 export type Transaction = {
   id: string;
@@ -304,6 +305,23 @@ export async function uploadDepositProof(depositId: string, file: File) {
   }, user);
   await reload(user, true);
   return data.deposit;
+}
+
+export async function uploadProfilePhoto(file: File) {
+  const user = firebaseAuth.currentUser;
+  if (!user) throw new FinovaApiError("Your session has ended. Please sign in again.", 401);
+  if (!supabase) throw new FinovaApiError("Profile photo storage has not been configured.", 503);
+  const allowed = ["image/jpeg", "image/png", "image/webp"];
+  if (!allowed.includes(file.type) || file.size <= 0 || file.size > 5 * 1024 * 1024) throw new FinovaApiError("Choose a JPG, PNG, or WEBP image no larger than 5 MB.", 400);
+  const extension = (file.name.split(".").pop() || "jpg").replace(/[^a-zA-Z0-9]/g, "").slice(0, 8) || "jpg";
+  const storagePath = `profile-photos/${user.uid}/${crypto.randomUUID()}.${extension}`;
+  const { error } = await supabase.storage.from(SUPABASE_PROFILE_PHOTO_BUCKET).upload(storagePath, file, { cacheControl: "31536000", contentType: file.type, upsert: false });
+  if (error) throw new FinovaApiError(error.message || "We could not upload your profile photo.", 400);
+  const { data } = supabase.storage.from(SUPABASE_PROFILE_PHOTO_BUCKET).getPublicUrl(storagePath);
+  if (!data.publicUrl) throw new FinovaApiError("We could not retrieve your profile photo URL.", 500);
+  const saved = await updateWorkspace(current => ({ ...current, profile: { ...current.profile, photoURL: data.publicUrl } }));
+  if (!saved) throw new FinovaApiError("Your photo uploaded but could not be saved to your profile.", 500);
+  return data.publicUrl;
 }
 
 export type TransferQuote = { senderAccountId: string; recipientAccountId: string; recipientName: string; recipientAccountNumber: string; amount: number; serviceCharge: number; total: number; currency: string; availableBalance: number };
