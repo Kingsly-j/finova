@@ -1,9 +1,5 @@
 import "server-only";
 
-import { DemoBankError } from "@/lib/demo-bank";
-import { FirebaseAdminConfigurationError } from "@/lib/firebase-admin";
-import { ServerAuthError } from "@/lib/server-auth";
-
 const MAX_JSON_BYTES = 256_000;
 
 export async function requestBody(request: Request): Promise<Record<string, unknown>> {
@@ -24,18 +20,22 @@ export async function requestBody(request: Request): Promise<Record<string, unkn
 }
 
 export function apiError(error: unknown) {
-  if (error instanceof ServerAuthError) {
-    return Response.json({ error: error.message }, { status: error.status });
+  const namedError = error && typeof error === "object" ? error as { name?: unknown; message?: unknown; status?: unknown } : null;
+  const errorName = String(namedError?.name || "");
+  const errorMessage = typeof namedError?.message === "string" ? namedError.message : "";
+  const errorStatus = typeof namedError?.status === "number" ? namedError.status : 500;
+  if (errorName === "ServerAuthError") {
+    return Response.json({ error: errorMessage || "Authentication is required." }, { status: errorStatus === 403 ? 403 : 401 });
   }
-  if (error instanceof DemoBankError) {
-    return Response.json({ error: error.message }, { status: error.status });
+  if (errorName === "DemoBankError") {
+    return Response.json({ error: errorMessage || "The request could not be completed." }, { status: [400, 403, 404, 409].includes(errorStatus) ? errorStatus : 400 });
   }
-  if (error instanceof FirebaseAdminConfigurationError) {
+  if (errorName === "FirebaseAdminConfigurationError") {
     return Response.json({ error: "The Finova demo service has not been configured on this server." }, { status: 503 });
   }
   console.error("Finova API request failed", error);
   const firebaseCode = error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code || "") : "";
-  const firebaseMessage = error instanceof Error ? error.message : "";
+  const firebaseMessage = errorMessage;
   if (firebaseCode === "7" || firebaseCode.includes("permission-denied") || firebaseCode.includes("PERMISSION_DENIED") || /permission.?denied/i.test(firebaseMessage)) {
     return Response.json({ error: "The server does not have permission to access Finova data. Check the Firebase Admin service-account configuration in Vercel." }, { status: 503 });
   }
