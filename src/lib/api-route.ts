@@ -48,5 +48,9 @@ export function apiError(error: unknown) {
   if (firebaseCode === "14" || firebaseCode.includes("UNAVAILABLE") || /service unavailable|network/i.test(firebaseMessage)) {
     return Response.json({ error: "Firebase is temporarily unavailable. Please try again shortly." }, { status: 503 });
   }
-  return Response.json({ error: "The Finova demo service could not complete that request." }, { status: 500 });
+  const diagnostic = firebaseMessage
+    .replace(/-----BEGIN[\s\S]*?-----END[^\s]*/g, "[redacted credential]")
+    .replace(/\b(?:AIza|sb_publishable_)[A-Za-z0-9_\-]+/g, "[redacted key]")
+    .slice(0, 300);
+  return Response.json({ error: diagnostic ? `The server could not complete this request: ${diagnostic}` : "The Finova service could not complete that request." }, { status: 500 });
 }
