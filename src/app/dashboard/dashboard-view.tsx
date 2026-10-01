@@ -18,6 +18,7 @@ const groups = [
   { title: "ACCOUNT", items: [["gear", "Settings"], ["headset", "Support"]] },
 ] as const;
 const INACTIVITY_LOCK_MS = 15 * 60 * 1000;
+const PIN_SESSION_PREFIX = "finova:pin-session:";
 
 function Icon({ name }: { name: string }) { return <i aria-hidden="true" className={`fa-solid fa-${name}`} />; }
 function initials(name: string) { return name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "F"; }
@@ -33,46 +34,81 @@ export default function Dashboard({ section = "" }: { section?: string }) {
   const [hidden, setHidden] = useState(false);
   const [modal, setModal] = useState("");
   const [opening, setOpening] = useState(false);
-  const [inactiveLocked, setInactiveLocked] = useState(false);
+  const [loginPinVerified, setLoginPinVerified] = useState(false);
+  const [pinGateReady, setPinGateReady] = useState(false);
   const [loginPin, setLoginPin] = useState("");
   const [pinError, setPinError] = useState("");
   const [pinBusy, setPinBusy] = useState(false);
-  const [isAdministrator, setIsAdministrator] = useState(false);
+  const [administratorUid, setAdministratorUid] = useState("");
   const dialog = useRef<HTMLDialogElement>(null);
   const pinDialog = useRef<HTMLDialogElement>(null);
   const activityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const inactiveLockRef = useRef(false);
   const primaryAccount = workspace.accounts[0];
-  const needsSignInPin = Boolean(ready && user && primaryAccount?.pinConfigured && inactiveLocked);
+  const isAdministrator = Boolean(user && administratorUid === user.uid);
+  const needsSignInPin = Boolean(pinGateReady && ready && user && primaryAccount?.pinConfigured && !loginPinVerified);
 
   useEffect(() => {
     if (ready && !user) router.replace("/banking?mode=login");
   }, [ready, router, user]);
+  // This effect restores PIN state from browser session storage after page navigation or reload.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (ready && !user) {
+      for (const key of Object.keys(sessionStorage)) {
+        if (key.startsWith(PIN_SESSION_PREFIX)) sessionStorage.removeItem(key);
+      }
+      setLoginPinVerified(false);
+      setPinGateReady(true);
+      return;
+    }
+    if (ready && user && primaryAccount?.pinConfigured) {
+      const key = `${PIN_SESSION_PREFIX}${user.uid}`;
+      const saved = sessionStorage.getItem(key);
+      let lastActivityAt = 0;
+      try { lastActivityAt = saved ? Number(JSON.parse(saved).lastActivityAt) : 0; }
+      catch { sessionStorage.removeItem(key); }
+      const stillActive = Number.isFinite(lastActivityAt) && lastActivityAt > 0 && Date.now() - lastActivityAt < INACTIVITY_LOCK_MS;
+      if (stillActive) {
+        sessionStorage.setItem(key, JSON.stringify({ lastActivityAt }));
+      } else {
+        sessionStorage.removeItem(key);
+      }
+      setLoginPinVerified(stillActive);
+      setPinGateReady(true);
+    } else if (ready && user && primaryAccount && !primaryAccount.pinConfigured) {
+      setLoginPinVerified(false);
+      setPinGateReady(true);
+    }
+  }, [primaryAccount, ready, user]);
+  /* eslint-enable react-hooks/set-state-in-effect */
   useEffect(() => { if (modal) dialog.current?.showModal(); else dialog.current?.close(); }, [modal]);
   useEffect(() => { if (needsSignInPin) pinDialog.current?.showModal(); else pinDialog.current?.close(); }, [needsSignInPin]);
   useEffect(() => {
-    inactiveLockRef.current = Boolean(user && primaryAccount?.pinConfigured);
-    setInactiveLocked(Boolean(user && primaryAccount?.pinConfigured));
-  }, [primaryAccount?.id, primaryAccount?.pinConfigured, user]);
-  useEffect(() => {
-    if (!user || !primaryAccount?.pinConfigured || inactiveLocked) return;
-    const lock = () => { inactiveLockRef.current = true; setInactiveLocked(true); };
+    if (!user || !primaryAccount?.pinConfigured || !loginPinVerified) return;
+    const key = `${PIN_SESSION_PREFIX}${user.uid}`;
     const reset = () => {
-      if (inactiveLockRef.current) return;
       if (activityTimer.current) clearTimeout(activityTimer.current);
-      activityTimer.current = setTimeout(lock, INACTIVITY_LOCK_MS);
+      const lastActivityAt = Date.now();
+      sessionStorage.setItem(key, JSON.stringify({ lastActivityAt }));
+      activityTimer.current = setTimeout(() => {
+        sessionStorage.removeItem(key);
+        setLoginPinVerified(false);
+      }, INACTIVITY_LOCK_MS);
     };
     const events: Array<keyof WindowEventMap> = ["pointerdown", "keydown", "touchstart", "scroll"];
     events.forEach(event => window.addEventListener(event, reset, { passive: true }));
     reset();
-    return () => { if (activityTimer.current) clearTimeout(activityTimer.current); events.forEach(event => window.removeEventListener(event, reset)); };
-  }, [inactiveLocked, primaryAccount?.id, primaryAccount?.pinConfigured, user]);
+    return () => {
+      if (activityTimer.current) clearTimeout(activityTimer.current);
+      events.forEach(event => window.removeEventListener(event, reset));
+    };
+  }, [loginPinVerified, primaryAccount?.id, primaryAccount?.pinConfigured, user]);
   useEffect(() => {
     let active = true;
-    if (!user) { setIsAdministrator(false); return () => { active = false; }; }
+    if (!user) return () => { active = false; };
     void user.getIdToken().then(token => fetch("/api/demo/admin-access", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }))
-      .then(response => { if (active) setIsAdministrator(response.ok); })
-      .catch(() => { if (active) setIsAdministrator(false); });
+      .then(response => { if (active) setAdministratorUid(response.ok ? user.uid : ""); })
+      .catch(() => { if (active) setAdministratorUid(""); });
     return () => { active = false; };
   }, [user]);
 
@@ -119,8 +155,8 @@ export default function Dashboard({ section = "" }: { section?: string }) {
     setPinError(""); setPinBusy(true);
     try {
       await verifyTransactionPin({ accountId: primaryAccount.id, pin });
-      inactiveLockRef.current = false;
-      setInactiveLocked(false);
+      sessionStorage.setItem(`${PIN_SESSION_PREFIX}${user.uid}`, JSON.stringify({ lastActivityAt: Date.now() }));
+      setLoginPinVerified(true);
       setLoginPin("");
     } catch (caught) { setPinError(caught instanceof Error ? caught.message : "We could not verify your transaction PIN."); }
     finally { setPinBusy(false); }

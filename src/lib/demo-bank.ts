@@ -3,12 +3,14 @@ import "server-only";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { Timestamp, type DocumentData, type DocumentSnapshot, type Transaction } from "firebase-admin/firestore";
 import { getFirebaseAdmin } from "@/lib/firebase-admin";
+import { queueActivityEmail } from "@/lib/email-notifications";
 
 const SETTINGS_ID = "operations";
 const MAX_AMOUNT_MINOR = 1_000_000_000_00;
 const MAX_LIST_ITEMS = 60;
 const DEFAULT_SETTINGS = {
   currency: "USD",
+  depositServiceChargeMinor: 0,
   cardFeeMinor: 1_500,
   internalTransferServiceChargeMinor: 250,
   requireTransferApproval: true,
@@ -208,6 +210,7 @@ function settingsFrom(value: unknown): DemoSettings {
   const source = record(value);
   return {
     currency: currency(source.currency),
+    depositServiceChargeMinor: Math.max(0, safeInteger(source.depositServiceChargeMinor, DEFAULT_SETTINGS.depositServiceChargeMinor)),
     cardFeeMinor: Math.max(0, safeInteger(source.cardFeeMinor, DEFAULT_SETTINGS.cardFeeMinor)),
     internalTransferServiceChargeMinor: Math.max(0, safeInteger(source.internalTransferServiceChargeMinor, DEFAULT_SETTINGS.internalTransferServiceChargeMinor)),
     requireTransferApproval: safeBoolean(source.requireTransferApproval, DEFAULT_SETTINGS.requireTransferApproval),
@@ -325,6 +328,7 @@ export async function onboardDemoUser(actor: DemoActor, input: JsonRecord = {}) 
   if (!current.exists) {
     await profileReference.set({
       ...fields,
+    emailNotificationsEnabled: currentProfile.emailNotificationsEnabled !== false,
       dark: false,
       beneficiaries: [],
       tickets: [],
@@ -340,7 +344,7 @@ export async function onboardDemoUser(actor: DemoActor, input: JsonRecord = {}) 
       updatedAt: createdAt,
     });
   } else {
-    await profileReference.set({ ...fields, updatedAt: createdAt }, { merge: true });
+    await profileReference.set({ ...fields, emailNotificationsEnabled: currentProfile.emailNotificationsEnabled !== false, updatedAt: createdAt }, { merge: true });
   }
   await createAccountDocument(actor, {
     accountType: input.accountType,
@@ -466,6 +470,7 @@ function depositRequestView(snapshot: DocumentSnapshot<DocumentData>) {
     id: snapshot.id,
     accountId: text(value.accountId, 160),
     amount: amountFromMinor(value.amountMinor),
+    serviceCharge: amountFromMinor(value.feeMinor),
     currency: currency(value.currency),
     paymentMethodName: text(value.paymentMethodName, 100),
     instructions: text(value.instructions, 1_000),
@@ -556,6 +561,7 @@ export async function getUserDashboard(actor: DemoActor) {
       cardApplications: sortByDate(cardAppsSnapshot.docs.map(cardApplicationView)),
       settings: {
         currency: settings.currency,
+        depositServiceCharge: amountFromMinor(settings.depositServiceChargeMinor),
         cardFee: amountFromMinor(settings.cardFeeMinor),
         internalTransferServiceCharge: amountFromMinor(settings.internalTransferServiceChargeMinor),
         demoMode: true,
@@ -593,7 +599,10 @@ export async function createDepositRequest(actor: DemoActor, input: JsonRecord) 
   const { db } = getFirebaseAdmin();
   const accountSnapshot = await ownedAccount(actor, input.accountId);
   const account = record(accountSnapshot.data());
+  requireTransactionPin(account, input.transactionPin);
   const amountMinor = amountToMinor(input.amount, "Deposit amount");
+  const settings = await getSettings();
+  const feeMinor = settings.depositServiceChargeMinor;
   const methodId = text(input.paymentMethodId, 160);
   if (!methodId) throw new DemoBankError("Select an available deposit method.");
   const methodSnapshot = await db.collection("paymentMethods").doc(methodId).get();
@@ -607,13 +616,22 @@ export async function createDepositRequest(actor: DemoActor, input: JsonRecord) 
   const createdAt = now();
   const userProfile = await db.collection("users").doc(actor.uid).get();
   const profile = record(userProfile.data());
-  await reference.create({
+  await db.runTransaction(async transaction => {
+    const [existingSnapshot, currentAccountSnapshot] = await Promise.all([transaction.get(reference), transaction.get(accountSnapshot.ref)]);
+    if (existingSnapshot.exists) return;
+    const currentAccount = record(currentAccountSnapshot.data());
+    if (text(currentAccount.status, 20) !== "Active") throw new DemoBankError("The selected Finova account is not active.", 409);
+    if (safeInteger(currentAccount.availableMinor) < feeMinor) throw new DemoBankError("Your available balance does not cover the deposit service charge.", 409);
+    if (feeMinor > 0) transaction.update(accountSnapshot.ref, { availableMinor: safeInteger(currentAccount.availableMinor) - feeMinor, updatedAt: createdAt });
+    transaction.create(reference, {
     ownerUid: actor.uid,
     ownerName: profileName(profile, actor.displayName || "Finova member"),
     ownerEmail: actor.email || text(profile.email, 160),
     accountId: accountSnapshot.id,
     accountNumber: text(account.accountNumber, 32),
     amountMinor,
+    feeMinor,
+    feeReserved: true,
     currency: currency(account.currency),
     paymentMethodId: methodSnapshot.id,
     paymentMethodName: text(method.name, 100),
@@ -625,7 +643,13 @@ export async function createDepositRequest(actor: DemoActor, input: JsonRecord) 
     createdAt,
     updatedAt: createdAt,
   });
+  });
   const saved = await reference.get();
+  await queueActivityEmail({
+    uid: actor.uid, email: actor.email || text(profile.email, 160), name: profileName(profile, actor.displayName || "Finova member"),
+    eventId: `deposit-created:${id}`, subject: "Deposit request received",
+    text: `Your deposit request ${id} for ${amountFromMinor(amountMinor)} ${currency(account.currency)} was received. The ${amountFromMinor(feeMinor)} service charge is reserved during review and released if the request is rejected.`,
+  });
   return { deposit: depositRequestView(saved) };
 }
 
@@ -649,6 +673,11 @@ export async function submitDepositProof(actor: DemoActor, depositId: string, in
     status: "pending",
     submittedAt,
     updatedAt: submittedAt,
+  });
+  await queueActivityEmail({
+    uid: actor.uid, email: actor.email, name: actor.displayName || "Finova member",
+    eventId: `deposit-proof:${depositReference.id}`, subject: "Deposit payment proof submitted",
+    text: `Payment proof for deposit request ${depositReference.id} has been submitted and is awaiting administrator review.`,
   });
   return { deposit: depositRequestView(await depositReference.get()) };
 }
@@ -676,6 +705,9 @@ export async function quoteInternalTransfer(actor: DemoActor, input: JsonRecord)
   const amountMinor = amountToMinor(input.amount, "Transfer amount");
   const settings = await getSettings();
   const feeMinor = settings.internalTransferServiceChargeMinor;
+  if (safeInteger(sender.availableMinor) < amountMinor + feeMinor) {
+    throw new DemoBankError("Your available balance must cover the transfer amount and service charge before continuing.", 409);
+  }
   return {
     senderAccountId: senderSnapshot.id,
     recipientAccountId: recipientSnapshot.id,
@@ -742,37 +774,52 @@ export async function createInternalTransfer(actor: DemoActor, input: JsonRecord
     });
     return;
   });
+  await queueActivityEmail({
+    uid: actor.uid, email: actor.email, name: actor.displayName || "Finova member",
+    eventId: `transfer-created:${id}`, subject: "Finova transfer submitted",
+    text: `Your transfer request ${id} for ${quote.amount} ${quote.currency} has been submitted and is awaiting administrator review.`,
+  });
   return { transfer: { id, status: "pending", ...quote } };
 }
 
 export async function createCardApplication(actor: DemoActor, input: JsonRecord) {
   const { db } = getFirebaseAdmin();
   const accountSnapshot = await ownedAccount(actor, input.accountId);
-  const account = record(accountSnapshot.data());
-  if (text(account.status, 20) !== "Active") throw new DemoBankError("Choose an active Finova account for this card.", 409);
   const id = requestKey(input.requestKey, `card_${actor.uid}`);
   const reference = db.collection("cardApplications").doc(id);
-  const existing = await reference.get();
-  if (existing.exists) return { application: cardApplicationView(existing) };
   const settings = await getSettings();
   const profileSnapshot = await db.collection("users").doc(actor.uid).get();
   const profile = record(profileSnapshot.data());
   const createdAt = now();
-  await reference.create({
-    ownerUid: actor.uid,
-    ownerName: profileName(profile, actor.displayName || "Finova member"),
-    ownerEmail: actor.email || text(profile.email, 160),
-    accountId: accountSnapshot.id,
-    accountNumber: text(account.accountNumber, 32),
-    cardType: ["Visa", "Mastercard", "American Express"].includes(text(input.cardType, 40)) ? text(input.cardType, 40) : "Visa",
-    level: ["Standard", "Gold", "Platinum", "Black"].includes(text(input.level, 40)) ? text(input.level, 40) : "Standard",
-    holder: text(input.holder, 100) || profileName(profile, actor.displayName || "Finova member"),
-    currency: currency(account.currency),
-    dailyLimitMinor: optionalAmountToMinor(input.dailyLimit, "Daily limit") || 100_000,
-    cardFeeMinor: settings.cardFeeMinor,
-    status: "pending",
-    createdAt,
-    updatedAt: createdAt,
+  await db.runTransaction(async transaction => {
+    const [existingSnapshot, currentAccountSnapshot] = await Promise.all([transaction.get(reference), transaction.get(accountSnapshot.ref)]);
+    if (existingSnapshot.exists) return;
+    const currentAccount = record(currentAccountSnapshot.data());
+    if (text(currentAccount.status, 20) !== "Active") throw new DemoBankError("Choose an active Finova account for this card.", 409);
+    if (safeInteger(currentAccount.availableMinor) < settings.cardFeeMinor) throw new DemoBankError("Your available balance does not cover the card application fee.", 409);
+    if (settings.cardFeeMinor > 0) transaction.update(accountSnapshot.ref, { availableMinor: safeInteger(currentAccount.availableMinor) - settings.cardFeeMinor, updatedAt: createdAt });
+    transaction.create(reference, {
+      ownerUid: actor.uid,
+      ownerName: profileName(profile, actor.displayName || "Finova member"),
+      ownerEmail: actor.email || text(profile.email, 160),
+      accountId: accountSnapshot.id,
+      accountNumber: text(currentAccount.accountNumber, 32),
+      cardType: ["Visa", "Mastercard", "American Express"].includes(text(input.cardType, 40)) ? text(input.cardType, 40) : "Visa",
+      level: ["Standard", "Gold", "Platinum", "Black"].includes(text(input.level, 40)) ? text(input.level, 40) : "Standard",
+      holder: text(input.holder, 100) || profileName(profile, actor.displayName || "Finova member"),
+      currency: currency(currentAccount.currency),
+      dailyLimitMinor: optionalAmountToMinor(input.dailyLimit, "Daily limit") || 100_000,
+      cardFeeMinor: settings.cardFeeMinor,
+      feeReserved: true,
+      status: "pending",
+      createdAt,
+      updatedAt: createdAt,
+    });
+  });
+  await queueActivityEmail({
+    uid: actor.uid, email: actor.email || text(profile.email, 160), name: profileName(profile, actor.displayName || "Finova member"),
+    eventId: `card-application:${id}`, subject: "Card application received",
+    text: `Your ${text(input.cardType, 40) || "Finova"} card application ${id} was submitted for administrator review. The ${amountFromMinor(settings.cardFeeMinor)} service charge is reserved and released if the request is rejected.`,
   });
   return { application: cardApplicationView(await reference.get()) };
 }
@@ -801,6 +848,21 @@ function ensurePending(value: JsonRecord, label: string) {
   if (text(value.status, 32) !== "pending") throw new DemoBankError(`This ${label} has already been reviewed.`, 409);
 }
 
+async function notifyOwner(recordValue: JsonRecord, eventId: string, subject: string, textBody: string) {
+  const uid = text(recordValue.ownerUid, 160);
+  if (!uid) return;
+  const profileSnapshot = await getFirebaseAdmin().db.collection("users").doc(uid).get();
+  const profile = record(profileSnapshot.data());
+  await queueActivityEmail({
+    uid,
+    email: text(recordValue.ownerEmail, 160) || text(profile.email, 160),
+    name: profileName(profile, text(recordValue.ownerName, 100) || "Finova member"),
+    eventId,
+    subject,
+    text: textBody,
+  });
+}
+
 export async function decideDeposit(admin: DemoActor, id: string, action: "approve" | "reject", note?: unknown) {
   const { db, storage } = getFirebaseAdmin();
   const reference = db.collection("depositRequests").doc(text(id, 180));
@@ -819,20 +881,22 @@ export async function decideDeposit(admin: DemoActor, id: string, action: "appro
     const request = record(requestSnapshot.data());
     ensurePending(request, "deposit request");
     const reviewedAt = now();
-    if (action === "reject") {
-      transaction.update(reference, { status: "rejected", reviewNote: text(note, 500), reviewedAt, reviewedBy: admin.uid, updatedAt: reviewedAt });
-      audit(transaction, { actorUid: admin.uid, action: "deposit.rejected", resourceType: "depositRequest", resourceId: reference.id });
-      return;
-    }
     const accountReference = db.collection("accounts").doc(text(request.accountId, 160));
     const accountSnapshot = await transaction.get(accountReference);
     if (!accountSnapshot.exists) throw new DemoBankError("The requested Finova account is unavailable.", 409);
     const account = record(accountSnapshot.data());
+    const feeMinor = safeInteger(request.feeMinor);
+    if (action === "reject") {
+      if (request.feeReserved === true && feeMinor > 0) transaction.update(accountReference, { availableMinor: safeInteger(account.availableMinor) + feeMinor, updatedAt: reviewedAt });
+      transaction.update(reference, { status: "rejected", reviewNote: text(note, 500), reviewedAt, reviewedBy: admin.uid, updatedAt: reviewedAt });
+      audit(transaction, { actorUid: admin.uid, action: "deposit.rejected", resourceType: "depositRequest", resourceId: reference.id });
+      return;
+    }
     if (text(account.status, 20) !== "Active") throw new DemoBankError("The requested Finova account is not active.", 409);
     const amountMinor = safeInteger(request.amountMinor);
     if (amountMinor <= 0) throw new DemoBankError("This deposit has an invalid amount.", 409);
     transaction.update(accountReference, {
-      balanceMinor: safeInteger(account.balanceMinor) + amountMinor,
+      balanceMinor: safeInteger(account.balanceMinor) + amountMinor - feeMinor,
       availableMinor: safeInteger(account.availableMinor) + amountMinor,
       updatedAt: reviewedAt,
     });
@@ -842,8 +906,14 @@ export async function decideDeposit(admin: DemoActor, id: string, action: "appro
       currency: currency(request.currency), description: `Approved demo deposit · ${text(request.paymentMethodName, 80) || "Funding"}`,
       category: "deposit", operationId: reference.id, actorUid: admin.uid,
     });
+    if (feeMinor > 0) ledger(transaction, {
+      ownerUid: text(request.ownerUid, 160), accountId: accountReference.id, amountMinorSigned: -feeMinor,
+      currency: currency(request.currency), description: "Deposit service charge", category: "fee", operationId: reference.id, actorUid: admin.uid,
+    });
     audit(transaction, { actorUid: admin.uid, action: "deposit.approved", resourceType: "depositRequest", resourceId: reference.id, detail: { amountMinor } });
   });
+  const reviewedDeposit = record((await reference.get()).data());
+  await notifyOwner(reviewedDeposit, `deposit-${action}:${reference.id}`, `Deposit ${action === "approve" ? "approved" : "rejected"}`, `Your deposit request ${reference.id} was ${action === "approve" ? "approved" : "rejected"}.${text(reviewedDeposit.reviewNote, 500) ? ` Review note: ${text(reviewedDeposit.reviewNote, 500)}` : ""}`);
   return { ok: true };
 }
 
@@ -896,6 +966,11 @@ export async function decideTransfer(admin: DemoActor, id: string, action: "appr
     });
     audit(transaction, { actorUid: admin.uid, action: "transfer.approved", resourceType: "transferRequest", resourceId: reference.id, detail: { amountMinor, feeMinor } });
   });
+  const reviewedTransfer = record((await reference.get()).data());
+  await notifyOwner(reviewedTransfer, `transfer-${action}:${reference.id}`, `Finova transfer ${action === "approve" ? "approved" : "rejected"}`, `Your transfer request ${reference.id} was ${action === "approve" ? "approved" : "rejected"}.${text(reviewedTransfer.reviewNote, 500) ? ` Review note: ${text(reviewedTransfer.reviewNote, 500)}` : ""}`);
+  if (action === "approve") {
+    await notifyOwner({ ownerUid: reviewedTransfer.recipientUid, ownerName: reviewedTransfer.recipientName }, `transfer-received:${reference.id}`, "Incoming Finova transfer", `An incoming transfer of ${amountFromMinor(safeInteger(reviewedTransfer.amountMinor))} ${currency(reviewedTransfer.currency)} has been credited to your Finova account.`);
+  }
   return { ok: true };
 }
 
@@ -919,17 +994,18 @@ export async function decideCardApplication(admin: DemoActor, id: string, action
     const account = record(accountSnapshot.data());
     const reviewedAt = now();
     if (action === "reject") {
+      const feeMinor = safeInteger(application.cardFeeMinor);
+      if (application.feeReserved === true && feeMinor > 0) transaction.update(accountReference, { availableMinor: safeInteger(account.availableMinor) + feeMinor, updatedAt: reviewedAt });
       transaction.update(reference, { status: "rejected", reviewNote: text(note, 500), reviewedAt, reviewedBy: admin.uid, updatedAt: reviewedAt });
       audit(transaction, { actorUid: admin.uid, action: "card.rejected", resourceType: "cardApplication", resourceId: reference.id });
       return;
     }
     const feeMinor = safeInteger(application.cardFeeMinor);
-    if (text(account.status, 20) !== "Active" || safeInteger(account.availableMinor) < feeMinor || safeInteger(account.balanceMinor) < feeMinor) {
-      throw new DemoBankError("The selected account does not have enough available demo balance for the fixed card fee.", 409);
+    if (text(account.status, 20) !== "Active" || safeInteger(account.balanceMinor) < feeMinor) {
+      throw new DemoBankError("The selected account no longer has enough balance for the reserved card fee.", 409);
     }
     transaction.update(accountReference, {
       balanceMinor: safeInteger(account.balanceMinor) - feeMinor,
-      availableMinor: safeInteger(account.availableMinor) - feeMinor,
       updatedAt: reviewedAt,
     });
     transaction.create(cardReference, {
@@ -954,6 +1030,8 @@ export async function decideCardApplication(admin: DemoActor, id: string, action
     });
     audit(transaction, { actorUid: admin.uid, action: "card.approved", resourceType: "cardApplication", resourceId: reference.id, detail: { feeMinor } });
   });
+  const reviewedApplication = record((await reference.get()).data());
+  await notifyOwner(reviewedApplication, `card-${action}:${reference.id}`, `Card application ${action === "approve" ? "approved" : "rejected"}`, `Your card application ${reference.id} was ${action === "approve" ? "approved" : "rejected"}.${text(reviewedApplication.reviewNote, 500) ? ` Review note: ${text(reviewedApplication.reviewNote, 500)}` : ""}`);
   return { ok: true };
 }
 
@@ -1043,12 +1121,14 @@ export async function disablePaymentMethod(admin: DemoActor, id: string) {
 
 export async function updateDemoSettings(admin: DemoActor, input: JsonRecord) {
   const { db } = getFirebaseAdmin();
+  const depositFeeMinor = input.depositServiceCharge === undefined ? undefined : feeToMinor(input.depositServiceCharge, "Deposit service charge");
   const cardFeeMinor = input.cardFee === undefined ? undefined : feeToMinor(input.cardFee, "Card fee");
   const transferFeeMinor = input.internalTransferServiceCharge === undefined ? undefined : feeToMinor(input.internalTransferServiceCharge, "Internal transfer service charge");
   const existing = await getSettings();
   const saved: DemoSettings = {
     ...existing,
     currency: currency(input.currency, existing.currency),
+    depositServiceChargeMinor: depositFeeMinor ?? existing.depositServiceChargeMinor,
     cardFeeMinor: cardFeeMinor ?? existing.cardFeeMinor,
     internalTransferServiceChargeMinor: transferFeeMinor ?? existing.internalTransferServiceChargeMinor,
     demoMode: true,
@@ -1060,6 +1140,7 @@ export async function updateDemoSettings(admin: DemoActor, input: JsonRecord) {
 function settingsPublic(settings: DemoSettings) {
   return {
     currency: settings.currency,
+    depositServiceCharge: amountFromMinor(settings.depositServiceChargeMinor),
     cardFee: amountFromMinor(settings.cardFeeMinor),
     internalTransferServiceCharge: amountFromMinor(settings.internalTransferServiceChargeMinor),
     requireTransferApproval: settings.requireTransferApproval,
@@ -1084,6 +1165,7 @@ function adminDepositView(snapshot: DocumentSnapshot<DocumentData>, url: string)
     id: snapshot.id,
     status: text(value.status, 32),
     amount: amountFromMinor(value.amountMinor),
+    serviceCharge: amountFromMinor(value.feeMinor),
     currency: currency(value.currency),
     userName: text(value.ownerName, 100),
     email: text(value.ownerEmail, 160),

@@ -4,7 +4,7 @@
 import "./banking.css";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { createUserWithEmailAndPassword, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { createUserWithEmailAndPassword, onAuthStateChanged, signInWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { firebaseAuth } from "@/lib/firebase";
 import { provisionWorkspace } from "@/app/dashboard/workspace-store";
 
@@ -44,10 +44,21 @@ function ReferenceAuth({ mode, onRegister, onReset }: { mode: Exclude<Mode, "reg
     const email = String(data.get("email") || "").trim();
     try {
       if (reset) {
-        await sendPasswordResetEmail(firebaseAuth, email);
+        const response = await fetch("/api/auth/password-reset", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        if (!response.ok) throw new Error("Password reset request failed.");
         setMessage("If an account exists, a reset link has been sent.");
       } else {
-        await signInWithEmailAndPassword(firebaseAuth, email, String(data.get("password") || ""));
+        const credential = await signInWithEmailAndPassword(firebaseAuth, email, String(data.get("password") || ""));
+        const token = await credential.user.getIdToken();
+        void fetch("/api/demo/auth-event", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ event: "login" }),
+        }).catch(() => undefined);
       }
     } catch (caught) {
       const code = (caught as { code?: string }).code;
@@ -95,7 +106,16 @@ function RegisterScreen({ onLogin }: { onLogin: () => void }) {
         email, phone: String(data.get("phone") || ""), country: String(data.get("country") || ""), accountType, currency, photoURL: "", createdAt: new Date().toISOString(),
       };
       await provisionWorkspace(credential.user, profile);
-      void sendEmailVerification(credential.user).catch(() => undefined);
+      const token = await credential.user.getIdToken();
+      void fetch("/api/auth/send-verification", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => undefined);
+      void fetch("/api/demo/auth-event", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ event: "registration" }),
+      }).catch(() => undefined);
     } catch (caught) {
       const code = (caught as { code?: string }).code;
       setError(code === "auth/email-already-in-use" ? "An account already exists with this email." : code === "auth/weak-password" ? "Use a password with at least six characters." : "We could not create your account. Please try again.");

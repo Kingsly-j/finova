@@ -372,22 +372,23 @@ function OverviewSection({ summary, settings, currency, pendingCount, onSettings
 }
 
 function SettingsPanel({ settings, currency, onSaved }: { settings: RecordValue; currency: string; onSaved: () => Promise<void> }) {
+  const [depositFee, setDepositFee] = useState(String(readNumber(settings, "depositServiceCharge")));
   const [cardFee, setCardFee] = useState(String(readNumber(settings, "cardFee")));
   const [transferFee, setTransferFee] = useState(String(readNumber(settings, "internalTransferServiceCharge")));
   const [selectedCurrency, setSelectedCurrency] = useState(currency);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  useEffect(() => { setCardFee(String(readNumber(settings, "cardFee"))); setTransferFee(String(readNumber(settings, "internalTransferServiceCharge"))); setSelectedCurrency(currency); }, [currency, settings]);
+  useEffect(() => { setDepositFee(String(readNumber(settings, "depositServiceCharge"))); setCardFee(String(readNumber(settings, "cardFee"))); setTransferFee(String(readNumber(settings, "internalTransferServiceCharge"))); setSelectedCurrency(currency); }, [currency, settings]);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); setMessage("");
-    const nextCardFee = Number(cardFee); const nextTransferFee = Number(transferFee);
-    if (!Number.isFinite(nextCardFee) || nextCardFee < 0 || !Number.isFinite(nextTransferFee) || nextTransferFee < 0) return setMessage("Enter zero or a positive number for each fee.");
+    const nextDepositFee = Number(depositFee); const nextCardFee = Number(cardFee); const nextTransferFee = Number(transferFee);
+    if (![nextDepositFee, nextCardFee, nextTransferFee].every(value => Number.isFinite(value) && value >= 0)) return setMessage("Enter zero or a positive number for each fee.");
     setBusy(true);
-    try { await adminRequest("/api/admin/settings", { method: "POST", body: JSON.stringify({ cardFee: nextCardFee, internalTransferServiceCharge: nextTransferFee, currency: selectedCurrency.toUpperCase() }) }); setMessage("Controls saved."); await onSaved(); }
+    try { await adminRequest("/api/admin/settings", { method: "POST", body: JSON.stringify({ depositServiceCharge: nextDepositFee, cardFee: nextCardFee, internalTransferServiceCharge: nextTransferFee, currency: selectedCurrency.toUpperCase() }) }); setMessage("Controls saved."); await onSaved(); }
     catch (caught) { setMessage(caught instanceof Error ? caught.message : "The controls could not be saved."); }
     finally { setBusy(false); }
   };
-  return <Card className={styles.settingsCard}><div className={styles.cardHeading}><div><p className={styles.eyebrow}>Configuration</p><h2>Operational controls</h2></div><span className={styles.demoSmall}>MANAGED</span></div><form onSubmit={submit} className={styles.settingsForm}><label>Card fee<div className={styles.inputWithPrefix}><span>{currency}</span><input value={cardFee} onChange={event => setCardFee(event.target.value)} type="number" min="0" step="0.01" /></div></label><label>Internal transfer service charge<div className={styles.inputWithPrefix}><span>{currency}</span><input value={transferFee} onChange={event => setTransferFee(event.target.value)} type="number" min="0" step="0.01" /></div></label><label>Display currency<select value={selectedCurrency} onChange={event => setSelectedCurrency(event.target.value)}><option value="USD">USD</option><option value="NGN">NGN</option><option value="GBP">GBP</option><option value="EUR">EUR</option></select></label><button className={styles.primaryButton} disabled={busy}>{busy ? "Saving..." : "Save controls"}</button>{message && <p className={styles.formMessage}>{message}</p>}</form></Card>;
+  return <Card className={styles.settingsCard}><div className={styles.cardHeading}><div><p className={styles.eyebrow}>Configuration</p><h2>Operational controls</h2></div><span className={styles.demoSmall}>MANAGED</span></div><form onSubmit={submit} className={styles.settingsForm}><label>Deposit service charge<div className={styles.inputWithPrefix}><span>{currency}</span><input value={depositFee} onChange={event => setDepositFee(event.target.value)} type="number" min="0" step="0.01" /></div></label><label>Card fee<div className={styles.inputWithPrefix}><span>{currency}</span><input value={cardFee} onChange={event => setCardFee(event.target.value)} type="number" min="0" step="0.01" /></div></label><label>Internal transfer service charge<div className={styles.inputWithPrefix}><span>{currency}</span><input value={transferFee} onChange={event => setTransferFee(event.target.value)} type="number" min="0" step="0.01" /></div></label><label>Display currency<select value={selectedCurrency} onChange={event => setSelectedCurrency(event.target.value)}><option value="USD">USD</option><option value="NGN">NGN</option><option value="GBP">GBP</option><option value="EUR">EUR</option></select></label><button className={styles.primaryButton} disabled={busy}>{busy ? "Saving..." : "Save controls"}</button>{message && <p className={styles.formMessage}>{message}</p>}</form></Card>;
 }
 
 function LegacyReviewSection({ kind, title, copy, items, currency, actionKey, notes, setNotes, onDecide }: { kind: "deposits" | "transfers" | "cards"; title: string; copy: string; items: RecordValue[]; currency: string; actionKey: string; notes: Record<string, string>; setNotes: React.Dispatch<React.SetStateAction<Record<string, string>>>; onDecide: (kind: "deposits" | "transfers" | "cards", item: RecordValue, action: Decision) => Promise<void> }) {

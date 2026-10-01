@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState, type FormEvent, type ReactNode } from "react";
+import { firebaseAuth } from "@/lib/firebase";
 import {
   createTransfer,
   money,
@@ -48,6 +49,14 @@ async function saveDraft(kind: string, description: string) {
     drafts: [{ id: crypto.randomUUID(), kind, description, date: new Date().toISOString() }, ...current.drafts].slice(0, 60),
   }));
   if (!saved) throw new Error("We could not save your request. Please try again.");
+  const user = firebaseAuth.currentUser;
+  if (user) {
+    void user.getIdToken().then(token => fetch("/api/demo/activity-email", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, description, eventId: crypto.randomUUID() }),
+    })).catch(() => undefined);
+  }
 }
 
 function AccountChoices({ accounts, value, onChange }: { accounts: Account[]; value: string; onChange: (value: string) => void }) {

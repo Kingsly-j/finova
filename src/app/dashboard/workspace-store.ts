@@ -46,7 +46,7 @@ export type Profile = {
   username: string;
 };
 export type PaymentMethod = { id: string; name: string; type: string; instructions: string; addressOrLink: string; enabled: boolean };
-export type Deposit = { id: string; accountId: string; amount: number; currency: string; paymentMethodName: string; instructions: string; addressOrLink: string; reference: string; status: string; proofStoragePath: string; createdAt: string; reviewNote: string };
+export type Deposit = { id: string; accountId: string; amount: number; serviceCharge?: number; currency: string; paymentMethodName: string; instructions: string; addressOrLink: string; reference: string; status: string; proofStoragePath: string; createdAt: string; reviewNote: string };
 export type CardApplication = { id: string; accountId: string; cardType: string; level: string; currency: string; cardFee: number; status: string; createdAt: string; reviewNote: string };
 export type Workspace = {
   version: 3;
@@ -62,7 +62,7 @@ export type Workspace = {
   paymentMethods: PaymentMethod[];
   deposits: Deposit[];
   cardApplications: CardApplication[];
-  settings: { currency: string; cardFee: number; internalTransferServiceCharge: number; demoMode: true };
+  settings: { currency: string; depositServiceCharge: number; cardFee: number; internalTransferServiceCharge: number; demoMode: true };
 };
 export type RegistrationDetails = Partial<Profile> & { accountType?: string; currency?: string };
 export type DashboardSession = { user: User | null; workspace: Workspace; ready: boolean; syncing: boolean; error: string };
@@ -89,7 +89,7 @@ const emptyWorkspace: Workspace = {
   paymentMethods: [],
   deposits: [],
   cardApplications: [],
-  settings: { currency: "USD", cardFee: 0, internalTransferServiceCharge: 0, demoMode: true },
+  settings: { currency: "USD", depositServiceCharge: 0, cardFee: 0, internalTransferServiceCharge: 0, demoMode: true },
 };
 
 let session: DashboardSession = { user: null, workspace: emptyWorkspace, ready: false, syncing: false, error: "" };
@@ -142,6 +142,7 @@ function normalize(raw: unknown, user?: User | null): Workspace {
     cardApplications: strings<CardApplication>(value.cardApplications),
     settings: isRecord(value.settings) ? {
       currency: typeof value.settings.currency === "string" ? value.settings.currency : "USD",
+      depositServiceCharge: Number(value.settings.depositServiceCharge) || 0,
       cardFee: Number(value.settings.cardFee) || 0,
       internalTransferServiceCharge: Number(value.settings.internalTransferServiceCharge) || 0,
       demoMode: true,
@@ -280,7 +281,7 @@ function newRequestKey() {
   return crypto.randomUUID().replace(/-/g, "_");
 }
 
-export async function createDeposit(input: { accountId: string; paymentMethodId: string; amount: number; reference?: string }) {
+export async function createDeposit(input: { accountId: string; paymentMethodId: string; amount: number; reference?: string; transactionPin: string }) {
   const data = await apiRequest<{ deposit: Deposit }>("/api/demo/deposits", {
     method: "POST",
     body: JSON.stringify({ ...input, requestKey: newRequestKey() }),
