@@ -6,7 +6,8 @@ import { onAuthStateChanged, signOut, type User } from "firebase/auth";
 import { firebaseAuth } from "@/lib/firebase";
 import styles from "./admin.module.css";
 
-type AdminTab = "overview" | "deposits" | "transfers" | "cards" | "credits" | "methods";
+type AdminTab = "overview" | "account-applications" | "deposits" | "transfers" | "cards" | "credits" | "methods";
+type ReviewKind = "account-applications" | "deposits" | "transfers" | "cards";
 type RecordValue = Record<string, unknown>;
 type Decision = "approve" | "reject";
 
@@ -16,6 +17,7 @@ type AdminOverview = {
   deposits?: RecordValue[];
   transfers?: RecordValue[];
   cards?: RecordValue[];
+  accountApplications?: RecordValue[];
   accounts?: RecordValue[];
   settings?: RecordValue;
 };
@@ -30,6 +32,7 @@ type PaymentMethodDraft = {
 
 const tabs: Array<{ id: AdminTab; label: string; icon: string }> = [
   { id: "overview", label: "Overview", icon: "▦" },
+  { id: "account-applications", label: "Account approvals", icon: "✓" },
   { id: "deposits", label: "Deposit reviews", icon: "↓" },
   { id: "transfers", label: "Transfer reviews", icon: "⇄" },
   { id: "cards", label: "Card applications", icon: "▣" },
@@ -193,6 +196,7 @@ function AdminContent() {
         deposits: list(payload?.deposits),
         transfers: list(payload?.transfers),
         cards: list(payload?.cards),
+        accountApplications: list(payload?.accountApplications),
         accounts: list(payload?.accounts),
         settings: asRecord(payload?.settings),
       });
@@ -226,11 +230,12 @@ function AdminContent() {
   const deposits = overview?.deposits ?? [];
   const transfers = overview?.transfers ?? [];
   const cards = overview?.cards ?? [];
+  const accountApplications = overview?.accountApplications ?? [];
   const accounts = overview?.accounts ?? [];
   const methods = overview?.paymentMethods ?? [];
-  const pendingCount = useMemo(() => deposits.filter(item => getStatus(item) === "pending").length + transfers.filter(item => getStatus(item) === "pending").length + cards.filter(item => getStatus(item) === "pending").length, [cards, deposits, transfers]);
+  const pendingCount = useMemo(() => accountApplications.filter(item => getStatus(item) === "pending").length + deposits.filter(item => getStatus(item) === "pending").length + transfers.filter(item => getStatus(item) === "pending").length + cards.filter(item => getStatus(item) === "pending").length, [accountApplications, cards, deposits, transfers]);
 
-  const decide = async (kind: "deposits" | "transfers" | "cards", item: RecordValue, action: Decision) => {
+  const decide = async (kind: ReviewKind, item: RecordValue, action: Decision) => {
     const id = readString(item, "id", "requestId");
     if (!id) return setError("This request is missing its server identifier. Refresh and try again.");
     const key = `${kind}-${id}-${action}`;
@@ -265,7 +270,7 @@ function AdminContent() {
         <a className={styles.brand} href="/dashboard" aria-label="Finova dashboard home"><img src="/finova-bank-logo-cropped.png" alt="Finova Bank" /></a>
         <div className={styles.workspaceLabel}><span /> Operations</div>
         <nav className={styles.nav} aria-label="Admin sections">
-          {tabs.map(tab => <button key={tab.id} className={activeTab === tab.id ? styles.navActive : ""} onClick={() => setActiveTab(tab.id)}><i aria-hidden="true">{tab.icon}</i><span>{tab.label}</span>{["deposits", "transfers", "cards"].includes(tab.id) && pendingCount > 0 ? <em>{tab.id === "deposits" ? deposits.filter(item => getStatus(item) === "pending").length : tab.id === "transfers" ? transfers.filter(item => getStatus(item) === "pending").length : cards.filter(item => getStatus(item) === "pending").length}</em> : null}</button>)}
+          {tabs.map(tab => <button key={tab.id} className={activeTab === tab.id ? styles.navActive : ""} onClick={() => setActiveTab(tab.id)}><i aria-hidden="true">{tab.icon}</i><span>{tab.label}</span>{["account-applications", "deposits", "transfers", "cards"].includes(tab.id) ? <em>{tab.id === "account-applications" ? accountApplications.filter(item => getStatus(item) === "pending").length : tab.id === "deposits" ? deposits.filter(item => getStatus(item) === "pending").length : tab.id === "transfers" ? transfers.filter(item => getStatus(item) === "pending").length : cards.filter(item => getStatus(item) === "pending").length}</em> : null}</button>)}
         </nav>
         <div className={styles.sidebarFoot}>
           <div className={styles.adminIdentity}><div>{(user.displayName || user.email || "A").slice(0, 1).toUpperCase()}</div><span><strong>{user.displayName || "Administrator"}</strong><small>{user.email}</small></span></div>
@@ -283,6 +288,7 @@ function AdminContent() {
 
         {loading && !overview ? <LoadingPanel /> : <>
           {activeTab === "overview" && <OverviewSection summary={summary} settings={settings} currency={currency} pendingCount={pendingCount} onSettingsSaved={refresh} />}
+          {activeTab === "account-applications" && <AccountApplications items={accountApplications} actionKey={actionKey} notes={notes} setNotes={setNotes} onDecide={decide} />}
           {activeTab === "deposits" && <ReviewSection kind="deposits" title="Pending deposit reviews" copy="Review submitted payment evidence before the server credits the selected account." items={deposits} currency={currency} actionKey={actionKey} notes={notes} setNotes={setNotes} onDecide={decide} />}
           {activeTab === "transfers" && <ReviewSection kind="transfers" title="Internal transfer reviews" copy="Review Finova-to-Finova transfer requests. Service charges are calculated by the server." items={transfers} currency={currency} actionKey={actionKey} notes={notes} setNotes={setNotes} onDecide={decide} />}
           {activeTab === "cards" && <ReviewSection kind="cards" title="Card application reviews" copy="Review card applications before they are issued." items={cards} currency={currency} actionKey={actionKey} notes={notes} setNotes={setNotes} onDecide={decide} />}
@@ -360,6 +366,7 @@ function LegacySettingsPanel({ settings, currency, onSaved }: { settings: Record
 function OverviewSection({ summary, settings, currency, pendingCount, onSettingsSaved }: { summary: RecordValue; settings: RecordValue; currency: string; pendingCount: number; onSettingsSaved: () => Promise<void> }) {
   const cards = [
     ["Registered users", readNumber(summary, "totalUsers"), "Accounts in the workspace"],
+    ["Account approvals", readNumber(summary, "pendingAccountApplications"), "Awaiting account review"],
     ["Deposit reviews", readNumber(summary, "pendingDeposits"), "Awaiting payment verification"],
     ["Transfer reviews", readNumber(summary, "pendingTransfers"), "Awaiting an administrator decision"],
     ["Card applications", readNumber(summary, "pendingCards"), "Awaiting issuance review"],
@@ -397,7 +404,22 @@ function LegacyReviewSection({ kind, title, copy, items, currency, actionKey, no
   return <div className={styles.sectionStack}><section className={styles.sectionHeading}><div><p className={styles.eyebrow}>Review queue</p><h2>{title}</h2><span>{copy}</span></div><div className={styles.queueNumber}><strong>{pending.length}</strong><span>open request{pending.length === 1 ? "" : "s"}</span></div></section><Card className={styles.reviewCard}>{pending.length ? <div className={styles.reviewList}>{pending.map(item => <ReviewItem key={readString(item, "id", "requestId") || JSON.stringify(item)} kind={kind} item={item} currency={currency} note={notes[`${kind}-${readString(item, "id", "requestId")}`] || ""} onNote={value => setNotes(current => ({ ...current, [`${kind}-${readString(item, "id", "requestId")}`]: value }))} actionKey={actionKey} onDecide={onDecide} />)}</div> : <EmptyState title="No pending reviews" copy="New sandbox requests will appear here once a user submits them." />}</Card>{closed.length > 0 && <Card className={styles.historyCard}><div className={styles.cardHeading}><div><p className={styles.eyebrow}>Recent decisions</p><h2>Previously reviewed</h2></div><span>{closed.length} total</span></div><div className={styles.compactList}>{closed.slice(0, 8).map(item => <div key={readString(item, "id", "requestId") || JSON.stringify(item)}><span><strong>{reviewTitle(kind, item)}</strong><small>{formatDate(item.createdAt || item.updatedAt)}</small></span><b>{formatMoney(readNumber(item, "amount", "total", "fee"), readString(item, "currency") || currency)}</b><Status value={getStatus(item)} /></div>)}</div></Card>}</div>;
 }
 
-function ReviewSection({ kind, title, copy, items, currency, actionKey, notes, setNotes, onDecide }: { kind: "deposits" | "transfers" | "cards"; title: string; copy: string; items: RecordValue[]; currency: string; actionKey: string; notes: Record<string, string>; setNotes: React.Dispatch<React.SetStateAction<Record<string, string>>>; onDecide: (kind: "deposits" | "transfers" | "cards", item: RecordValue, action: Decision) => Promise<void> }) {
+function AccountApplications({ items, actionKey, notes, setNotes, onDecide }: { items: RecordValue[]; actionKey: string; notes: Record<string, string>; setNotes: React.Dispatch<React.SetStateAction<Record<string, string>>>; onDecide: (kind: ReviewKind, item: RecordValue, action: Decision) => Promise<void> }) {
+  const pending = items.filter(item => getStatus(item) === "pending");
+  const closed = items.filter(item => getStatus(item) !== "pending");
+  return <div className={styles.sectionStack}>
+    <section className={styles.sectionHeading}><div><p className={styles.eyebrow}>New account queue</p><h2>Account applications</h2><span>Review the applicant details. Approval creates their Finova account and enables sign-in.</span></div><div className={styles.queueNumber}><strong>{pending.length}</strong><span>awaiting review</span></div></section>
+    <Card className={styles.reviewCard}>{pending.length ? <div className={styles.reviewList}>{pending.map(item => {
+      const id = readString(item, "id");
+      const key = `account-applications-${id}`;
+      const name = readString(item, "displayName") || [readString(item, "firstName"), readString(item, "lastName")].filter(Boolean).join(" ") || "Finova applicant";
+      return <article className={styles.reviewItem} key={id}><div className={styles.requestTop}><div><p>{name}</p><small>{readString(item, "email")}</small></div><Status value={getStatus(item)} /></div><dl className={styles.requestMeta}>{[["Phone", readString(item, "phone")], ["Country", readString(item, "country")], ["Account type", readString(item, "accountType")], ["Currency", readString(item, "currency")], ["Username", readString(item, "username")], ["Submitted", formatDate(item.createdAt)]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || "Not provided"}</dd></div>)}</dl><div className={styles.decisionBox}><label>Review note <span>(optional)</span><textarea value={notes[key] || ""} onChange={event => setNotes(current => ({ ...current, [key]: event.target.value }))} placeholder="Add a short decision note" rows={2} /></label><div className={styles.decisionActions}><button className={styles.rejectButton} onClick={() => void onDecide("account-applications", item, "reject")} disabled={Boolean(actionKey) || actionKey === `${key}-reject`}>{actionKey === `${key}-reject` ? "Rejecting..." : "Reject"}</button><button className={styles.approveButton} onClick={() => void onDecide("account-applications", item, "approve")} disabled={Boolean(actionKey)}>{actionKey === `${key}-approve` ? "Approving..." : "Approve and create account"}</button></div></div></article>;
+    })}</div> : <EmptyState title="No account applications" copy="New registration requests will appear here for review." />}</Card>
+    {closed.length > 0 && <Card className={styles.historyCard}><div className={styles.cardHeading}><div><p className={styles.eyebrow}>Application history</p><h2>Previously reviewed</h2></div><span>{closed.length} total</span></div><div className={styles.compactList}>{closed.slice(0, 8).map(item => <div key={readString(item, "id")}><span><strong>{readString(item, "displayName") || readString(item, "email") || "Finova applicant"}</strong><small>{formatDate(item.createdAt)}</small></span><Status value={getStatus(item)} /></div>)}</div></Card>}
+  </div>;
+}
+
+function ReviewSection({ kind, title, copy, items, currency, actionKey, notes, setNotes, onDecide }: { kind: "deposits" | "transfers" | "cards"; title: string; copy: string; items: RecordValue[]; currency: string; actionKey: string; notes: Record<string, string>; setNotes: React.Dispatch<React.SetStateAction<Record<string, string>>>; onDecide: (kind: ReviewKind, item: RecordValue, action: Decision) => Promise<void> }) {
   const pending = items.filter(item => getStatus(item) === "pending");
   return <div className={styles.sectionStack}><section className={styles.sectionHeading}><div><p className={styles.eyebrow}>Review queue</p><h2>{title}</h2><span>{copy}</span></div><div className={styles.queueNumber}><strong>{pending.length}</strong><span>open request{pending.length === 1 ? "" : "s"}</span></div></section><Card className={styles.reviewCard}>{pending.length ? <div className={styles.reviewList}>{pending.map(item => <CleanReviewItem key={readString(item, "id", "requestId")} kind={kind} item={item} currency={currency} note={notes[`${kind}-${readString(item, "id", "requestId")}`] || ""} onNote={value => setNotes(current => ({ ...current, [`${kind}-${readString(item, "id", "requestId")}`]: value }))} actionKey={actionKey} onDecide={onDecide} />)}</div> : <EmptyState title="No pending reviews" copy="New requests will appear here once a user submits them." />}</Card></div>;
 }

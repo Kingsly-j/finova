@@ -1,14 +1,14 @@
 import { apiError } from "@/lib/api-route";
 import { getFirebaseAdmin } from "@/lib/firebase-admin";
 import { sendTransactionalEmail } from "@/lib/email-notifications";
-import { requireAuthenticatedUser } from "@/lib/server-auth";
+import { requireApprovedUser } from "@/lib/server-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    const user = await requireAuthenticatedUser(request);
+    const user = await requireApprovedUser(request);
     if (!user.email) return Response.json({ error: "This account has no email address." }, { status: 400 });
     const { auth } = getFirebaseAdmin();
     const record = await auth.getUser(user.uid);

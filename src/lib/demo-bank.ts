@@ -1,9 +1,9 @@
 import "server-only";
 
-import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomInt, scryptSync, timingSafeEqual } from "node:crypto";
 import { Timestamp, type DocumentData, type DocumentSnapshot, type Transaction } from "firebase-admin/firestore";
 import { getFirebaseAdmin } from "@/lib/firebase-admin";
-import { queueActivityEmail } from "@/lib/email-notifications";
+import { queueActivityEmail, sendTransactionalEmail } from "@/lib/email-notifications";
 
 const SETTINGS_ID = "operations";
 const MAX_AMOUNT_MINOR = 1_000_000_000_00;
@@ -335,16 +335,17 @@ export async function onboardDemoUser(actor: DemoActor, input: JsonRecord = {}) 
       notices: [{
         id: notificationId("welcome", actor.uid),
         title: "Welcome to Finova",
-        message: "Your demo account is ready. Funding requests are credited only after an administrator approves them.",
+        message: "Your Finova account has been approved and is ready to use.",
         date: createdAt.toDate().toISOString(),
         read: false,
       }],
       drafts: [],
+      accountStatus: "approved",
       createdAt,
       updatedAt: createdAt,
     });
   } else {
-    await profileReference.set({ ...fields, emailNotificationsEnabled: currentProfile.emailNotificationsEnabled !== false, updatedAt: createdAt }, { merge: true });
+    await profileReference.set({ ...fields, accountStatus: "approved", emailNotificationsEnabled: currentProfile.emailNotificationsEnabled !== false, updatedAt: createdAt }, { merge: true });
   }
   await createAccountDocument(actor, {
     accountType: input.accountType,
@@ -353,6 +354,150 @@ export async function onboardDemoUser(actor: DemoActor, input: JsonRecord = {}) 
     primary: true,
   });
   return getUserDashboard(actor);
+}
+
+export async function submitAccountApplication(actor: DemoActor, input: JsonRecord) {
+  const { auth, db } = getFirebaseAdmin();
+  const authRecord = await auth.getUser(actor.uid);
+  if (!authRecord.emailVerified) throw new DemoBankError("Verify your email with the one-time code before submitting your account for review.", 403);
+  const existingAccount = await db.collection("accounts").where("ownerUid", "==", actor.uid).limit(1).get();
+  if (!existingAccount.empty) throw new DemoBankError("This user already has an active Finova account.", 409);
+  const reference = db.collection("accountApplications").doc(actor.uid);
+  const existing = await reference.get();
+  if (existing.exists) {
+    const status = text(record(existing.data()).status, 32);
+    if (status !== "pending") throw new DemoBankError("An application for this account has already been reviewed. Contact Finova support if you need help.", 409);
+  } else {
+    const fields = profileFields(input, actor);
+    if (!fields.firstName || !fields.lastName || !fields.email || !fields.phone || !fields.country) {
+      throw new DemoBankError("Complete your name and contact details before submitting your application.");
+    }
+    const createdAt = now();
+    await reference.create({
+      applicantUid: actor.uid,
+      ...fields,
+      middleName: text(input.middleName, 60),
+      accountType: text(input.accountType, 80) || "Personal Account",
+      currency: currency(input.currency),
+      status: "pending",
+      reviewNote: "",
+      createdAt,
+      updatedAt: createdAt,
+    });
+  }
+  await auth.updateUser(actor.uid, { disabled: true });
+  return { status: "pending", message: "Your information is under review. You can sign in after an administrator approves your account." };
+}
+
+export async function sendAccountEmailOtp(actor: DemoActor) {
+  if (!actor.email) throw new DemoBankError("Add a valid email address before requesting a verification code.");
+  const { db } = getFirebaseAdmin();
+  const reference = db.collection("emailOtpChallenges").doc(actor.uid);
+  const existing = await reference.get();
+  const existingValue = record(existing.data());
+  const lastSentAt = existingValue.lastSentAt instanceof Timestamp ? existingValue.lastSentAt.toMillis() : 0;
+  if (lastSentAt && Date.now() - lastSentAt < 60_000) throw new DemoBankError("Wait one minute before requesting another email code.", 409);
+  const code = randomInt(0, 1_000_000).toString().padStart(6, "0");
+  const salt = randomBytes(16).toString("hex");
+  await reference.set({
+    email: actor.email,
+    salt,
+    codeHash: createHash("sha256").update(`${salt}:${code}`).digest("hex"),
+    attempts: 0,
+    expiresAt: Timestamp.fromMillis(Date.now() + 10 * 60_000),
+    lastSentAt: Timestamp.now(),
+  });
+  try {
+    await sendTransactionalEmail({
+      to: actor.email,
+      subject: "Your Finova email verification code",
+      text: `Your Finova one-time verification code is ${code}. It expires in 10 minutes. If you did not request this code, you can ignore this email.`,
+      eventId: `email-otp:${actor.uid}:${Date.now()}`,
+    });
+  } catch (error) {
+    await reference.delete();
+    throw error;
+  }
+  return { sent: true, expiresInSeconds: 600 };
+}
+
+export async function verifyAccountEmailOtp(actor: DemoActor, input: JsonRecord) {
+  const code = text(input.code, 6);
+  if (!/^\d{6}$/.test(code)) throw new DemoBankError("Enter the six-digit code from your email.");
+  const { auth, db } = getFirebaseAdmin();
+  const reference = db.collection("emailOtpChallenges").doc(actor.uid);
+  const snapshot = await reference.get();
+  if (!snapshot.exists) throw new DemoBankError("Request a new email verification code before continuing.", 409);
+  const challenge = record(snapshot.data());
+  const expiresAt = challenge.expiresAt instanceof Timestamp ? challenge.expiresAt.toMillis() : 0;
+  if (expiresAt <= Date.now()) {
+    await reference.delete();
+    throw new DemoBankError("That email code has expired. Request a new one.", 409);
+  }
+  const attempts = safeInteger(challenge.attempts);
+  if (attempts >= 5) throw new DemoBankError("Too many incorrect codes. Request a new email code.", 409);
+  const expected = String(challenge.codeHash || "");
+  const actual = createHash("sha256").update(`${String(challenge.salt || "")}:${code}`).digest("hex");
+  const valid = expected.length === actual.length && timingSafeEqual(Buffer.from(expected), Buffer.from(actual));
+  if (!valid) {
+    await reference.update({ attempts: attempts + 1 });
+    throw new DemoBankError(`That code is incorrect. ${4 - attempts} attempt${attempts === 3 ? "" : "s"} remaining.`);
+  }
+  await auth.updateUser(actor.uid, { emailVerified: true });
+  await reference.delete();
+  return { verified: true };
+}
+
+export async function decideAccountApplication(admin: DemoActor, uid: string, action: "approve" | "reject", note?: unknown) {
+  const { auth, db } = getFirebaseAdmin();
+  const reference = db.collection("accountApplications").doc(text(uid, 160));
+  const snapshot = await reference.get();
+  if (!snapshot.exists) throw new DemoBankError("That account application was not found.", 404);
+  const application = record(snapshot.data());
+  const status = text(application.status, 32);
+  if (status === "rejected" || (status === "approved" && action === "reject")) {
+    throw new DemoBankError("This account application has already been reviewed.", 409);
+  }
+  const reviewedAt = now();
+  if (action === "reject") {
+    if (status !== "pending") throw new DemoBankError("This account application has already been reviewed.", 409);
+    await reference.update({ status: "rejected", reviewNote: text(note, 500), reviewedAt, reviewedBy: admin.uid, updatedAt: reviewedAt });
+    await db.collection("auditEvents").add({ actorUid: admin.uid, action: "accountApplication.rejected", resourceType: "accountApplication", resourceId: reference.id, detail: { note: text(note, 500) }, createdAt: reviewedAt });
+    try {
+      await sendTransactionalEmail({
+        to: text(application.email, 160),
+        subject: "Update on your Finova account application",
+        text: `Hello ${text(application.displayName, 100) || "Finova applicant"},\n\nWe have completed the review of your Finova account application and are unable to approve it at this time.${text(note, 500) ? `\n\nReview note: ${text(note, 500)}` : ""}\n\nPlease contact Finova support if you need more information.`,
+        eventId: `account-application-rejected:${reference.id}`,
+      });
+    } catch (error) { console.error("Could not send account application decision email", error); }
+    return { ok: true, status: "rejected" };
+  }
+
+  if (status === "pending") {
+    const applicant: DemoActor = { uid: reference.id, email: text(application.email, 160) || null, displayName: text(application.displayName, 100) };
+    await onboardDemoUser(applicant, application);
+    // Keep the application pending until Firebase is enabled. The API guard
+    // continues to block any already-issued token until the final update.
+    await auth.updateUser(reference.id, { disabled: false });
+    await reference.update({ status: "approved", reviewNote: text(note, 500), reviewedAt, reviewedBy: admin.uid, updatedAt: reviewedAt });
+    await db.collection("auditEvents").add({ actorUid: admin.uid, action: "accountApplication.approved", resourceType: "accountApplication", resourceId: reference.id, detail: {}, createdAt: reviewedAt });
+    try {
+      await sendTransactionalEmail({
+        to: text(application.email, 160),
+        subject: "Your Finova account is approved",
+        text: `Hello ${text(application.displayName, 100) || "Finova member"},\n\nYour Finova account application has been approved. Your account is ready, and you can now sign in to Finova.`,
+        eventId: `account-application-approved:${reference.id}`,
+      });
+    } catch (error) { console.error("Could not send account application decision email", error); }
+  } else if (status === "approved") {
+    // An earlier approval may have completed its Firestore writes but failed
+    // while enabling Firebase Authentication. Retrying safely restores access.
+    await auth.updateUser(reference.id, { disabled: false });
+  } else {
+    throw new DemoBankError("This account application is not awaiting review.", 409);
+  }
+  return { ok: true, status: "approved" };
 }
 
 async function ownedAccount(actor: DemoActor, accountId: unknown) {
@@ -1208,15 +1353,36 @@ function adminCardView(snapshot: DocumentSnapshot<DocumentData>) {
   };
 }
 
+function adminAccountApplicationView(snapshot: DocumentSnapshot<DocumentData>) {
+  const value = record(snapshot.data());
+  return {
+    id: snapshot.id,
+    status: text(value.status, 32) || "pending",
+    displayName: text(value.displayName, 100),
+    firstName: text(value.firstName, 60),
+    lastName: text(value.lastName, 60),
+    middleName: text(value.middleName, 60),
+    username: text(value.username, 60),
+    email: text(value.email, 160),
+    phone: text(value.phone, 32),
+    country: text(value.country, 80),
+    accountType: text(value.accountType, 80),
+    currency: currency(value.currency),
+    createdAt: dateString(value.createdAt),
+    reviewNote: text(value.reviewNote, 500),
+  };
+}
+
 export async function getAdminOverview() {
   const { db } = getFirebaseAdmin();
-  const [usersSnapshot, accountsSnapshot, methodsSnapshot, depositsSnapshot, transfersSnapshot, appsSnapshot, settings] = await Promise.all([
+  const [usersSnapshot, accountsSnapshot, methodsSnapshot, depositsSnapshot, transfersSnapshot, appsSnapshot, accountApplicationsSnapshot, settings] = await Promise.all([
     db.collection("users").get(),
     db.collection("accounts").get(),
     db.collection("paymentMethods").get(),
     db.collection("depositRequests").get(),
     db.collection("transferRequests").get(),
     db.collection("cardApplications").get(),
+    db.collection("accountApplications").get(),
     getSettings(),
   ]);
   const deposits = await Promise.all(depositsSnapshot.docs.map(async snapshot => {
@@ -1232,12 +1398,14 @@ export async function getAdminOverview() {
       pendingDeposits: deposits.filter(item => item.status === "pending").length,
       pendingTransfers: transfersSnapshot.docs.filter(snapshot => text(record(snapshot.data()).status, 32) === "pending").length,
       pendingCards: appsSnapshot.docs.filter(snapshot => text(record(snapshot.data()).status, 32) === "pending").length,
+      pendingAccountApplications: accountApplicationsSnapshot.docs.filter(snapshot => text(record(snapshot.data()).status, 32) === "pending").length,
     },
     settings: settingsPublic(settings),
     paymentMethods: methodsSnapshot.docs.map(paymentMethodView),
     deposits: sortByDate(deposits),
     transfers: sortByDate(transfersSnapshot.docs.map(adminTransferView)),
     cards: sortByDate(appsSnapshot.docs.map(adminCardView)),
+    accountApplications: sortByDate(accountApplicationsSnapshot.docs.map(adminAccountApplicationView)),
     accounts: accountsSnapshot.docs.map(accountView).map(account => ({ ...account, ownerUid: text(record(accountsSnapshot.docs.find(snapshot => snapshot.id === account.id)?.data()).ownerUid, 160) })),
   };
 }

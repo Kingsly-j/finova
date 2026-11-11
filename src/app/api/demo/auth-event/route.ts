@@ -1,13 +1,13 @@
 import { apiError, requestBody } from "@/lib/api-route";
 import { queueActivityEmail } from "@/lib/email-notifications";
-import { requireAuthenticatedUser } from "@/lib/server-auth";
+import { requireApprovedUser } from "@/lib/server-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    const user = await requireAuthenticatedUser(request);
+    const user = await requireApprovedUser(request);
     const body = await requestBody(request);
     const event = body.event;
     if (event !== "login" && event !== "registration") {

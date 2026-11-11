@@ -4,8 +4,8 @@ Finova is a controlled demonstration environment. It has no connected bank rails
 
 ## User flow
 
-- Firebase Authentication provides registration, sign-in, password reset, email verification, and sign-out.
-- Registration calls the protected onboarding API, which creates one zero-balance, server-owned Finova demo account.
+- Firebase Authentication provides registration, sign-in, password reset, and sign-out. New registrants verify an emailed six-digit OTP before their details enter the administrator review queue.
+- The pending registration is disabled in Firebase Authentication. No user profile or bank account is created until an administrator approves the application; approval creates one zero-balance account and enables sign-in.
 - Dashboard balances, account activity, cards, deposit requests, and transfer requests are read through authenticated server APIs.
 - Users can update a profile, appearance, internal recipients, notifications, and support tickets.
 - A user can create a pending deposit request from an administrator-configured payment method, upload one PDF/image proof, and wait for an admin decision.
@@ -20,6 +20,7 @@ This is only a discreet entry mechanism. Every admin API also verifies a Firebas
 
 Administrators can:
 
+- review, reject, or approve new account applications; approval creates the account and enables the applicant's sign-in;
 - configure or disable sandbox payment methods and crypto destinations;
 - review/reject/approve submitted deposit proofs;
 - review/reject/approve internal transfers;
@@ -33,6 +34,8 @@ All monetary values are stored as integer minor units in server-only Firestore c
 
 ```text
 accounts                 server-owned account balances
+accountApplications      pending applicant details and review decisions
+emailOtpChallenges       short-lived, rate-limited email verification codes
 ledgerEntries            immutable approved balance activity
 depositRequests          user requests and stored proof paths
 transferRequests         reserved, then approved/rejected internal transfers

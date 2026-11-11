@@ -68,6 +68,25 @@ export async function requireAuthenticatedUser(request: Request): Promise<Authen
   }
 }
 
+/** Rejects users while an account application is awaiting an administrator decision. */
+export async function requireApprovedUser(request: Request): Promise<AuthenticatedServerUser> {
+  const user = await requireAuthenticatedUser(request);
+  const { db } = getFirebaseAdmin();
+  const application = await db.collection("accountApplications").doc(user.uid).get();
+  if (application.exists) {
+    const status = application.data()?.status;
+    if (status !== "approved") {
+      throw new ServerAuthError(status === "rejected" ? "Your account application was not approved. Contact Finova support." : "Your account details are under review. You can sign in after an administrator approves your application.", 403);
+    }
+  } else {
+    const existingAccount = await db.collection("accounts").where("ownerUid", "==", user.uid).limit(1).get();
+    if (existingAccount.empty) {
+      throw new ServerAuthError("Your Finova account is not active yet. Submit an application and wait for an administrator to approve it.", 403);
+    }
+  }
+  return user;
+}
+
 /**
  * Authorizes an administrative request through either a signed `admin: true`
  * custom claim or a trusted `adminUsers/{uid}` document. Firestore rules deny
