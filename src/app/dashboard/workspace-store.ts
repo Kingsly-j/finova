@@ -16,6 +16,7 @@ export type Transaction = {
   date: string;
   accountId?: string;
   category?: "transfer" | "deposit" | "swap" | "card" | "credit" | "other";
+  reviewNote?: string;
 };
 
 export type Beneficiary = { id: string; name: string; account: string; bank: string; method: string; favorite: boolean };
@@ -47,6 +48,7 @@ export type Profile = {
 };
 export type PaymentMethod = { id: string; name: string; type: string; instructions: string; addressOrLink: string; enabled: boolean };
 export type Deposit = { id: string; accountId: string; amount: number; serviceCharge?: number; currency: string; paymentMethodName: string; instructions: string; addressOrLink: string; reference: string; status: string; proofStoragePath: string; createdAt: string; reviewNote: string };
+export type TransferRequest = { id: string; amount: number; serviceCharge: number; currency: string; status: string; description: string; date: string; reviewNote: string };
 export type CardApplication = { id: string; accountId: string; cardType: string; level: string; currency: string; cardFee: number; status: string; createdAt: string; reviewNote: string };
 export type Workspace = {
   version: 3;
@@ -62,6 +64,8 @@ export type Workspace = {
   paymentMethods: PaymentMethod[];
   deposits: Deposit[];
   cardApplications: CardApplication[];
+  transfers: TransferRequest[];
+  accountApplication: { status: string; reviewNote: string; submittedAt: string; reviewedAt: string } | null;
   settings: { currency: string; depositServiceCharge: number; cardFee: number; internalTransferServiceCharge: number; demoMode: true };
 };
 export type RegistrationDetails = Partial<Profile> & { accountType?: string; currency?: string };
@@ -89,6 +93,8 @@ const emptyWorkspace: Workspace = {
   paymentMethods: [],
   deposits: [],
   cardApplications: [],
+  transfers: [],
+  accountApplication: null,
   settings: { currency: "USD", depositServiceCharge: 0, cardFee: 0, internalTransferServiceCharge: 0, demoMode: true },
 };
 
@@ -140,6 +146,8 @@ function normalize(raw: unknown, user?: User | null): Workspace {
     paymentMethods: strings<PaymentMethod>(value.paymentMethods),
     deposits: strings<Deposit>(value.deposits),
     cardApplications: strings<CardApplication>(value.cardApplications),
+    transfers: strings<TransferRequest>(value.transfers),
+    accountApplication: value.accountApplication && typeof value.accountApplication === "object" ? value.accountApplication as Workspace["accountApplication"] : null,
     settings: isRecord(value.settings) ? {
       currency: typeof value.settings.currency === "string" ? value.settings.currency : "USD",
       depositServiceCharge: Number(value.settings.depositServiceCharge) || 0,
@@ -248,7 +256,7 @@ export async function updateWorkspace(update: (current: Workspace) => Workspace)
       method: "POST",
       body: JSON.stringify({
         dark: updated.dark,
-        profile: updated.profile,
+        profile: { ...updated.profile, email: current.profile.email },
         beneficiaries: updated.beneficiaries,
         tickets: updated.tickets,
         notices: updated.notices,

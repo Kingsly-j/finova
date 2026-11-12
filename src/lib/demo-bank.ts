@@ -574,6 +574,7 @@ function pendingDepositView(snapshot: DocumentSnapshot<DocumentData>) {
     date: dateString(value.createdAt),
     accountId: text(value.accountId, 160),
     category: "deposit",
+    reviewNote: text(value.reviewNote, 500),
   };
 }
 
@@ -589,6 +590,21 @@ function pendingTransferView(snapshot: DocumentSnapshot<DocumentData>) {
     date: dateString(value.createdAt),
     accountId: text(value.senderAccountId, 160),
     category: "transfer",
+    reviewNote: text(value.reviewNote, 500),
+  };
+}
+
+function userTransferRequestView(snapshot: DocumentSnapshot<DocumentData>) {
+  const value = record(snapshot.data());
+  return {
+    id: snapshot.id,
+    amount: amountFromMinor(value.amountMinor),
+    serviceCharge: amountFromMinor(value.feeMinor),
+    currency: currency(value.currency),
+    status: text(value.status, 32) || "pending",
+    description: text(value.description, 180) || `Transfer to ${text(value.recipientName, 100) || "Finova member"}`,
+    date: dateString(value.createdAt),
+    reviewNote: text(value.reviewNote, 500),
   };
 }
 
@@ -680,6 +696,8 @@ export async function getUserDashboard(actor: DemoActor) {
   ];
   const transactions = sortByDate([...ledgerTransactions, ...requestTransactions]).slice(0, 80);
   const preferences = preferencesFromProfile(profile);
+  const accountApplicationSnapshot = await db.collection("accountApplications").doc(actor.uid).get();
+  const accountApplication = record(accountApplicationSnapshot.data());
   return {
     workspace: {
       version: 3,
@@ -694,6 +712,12 @@ export async function getUserDashboard(actor: DemoActor) {
         photoURL: text(profile.photoURL, 1_200),
         username: text(profile.username, 60),
       },
+      accountApplication: accountApplicationSnapshot.exists ? {
+        status: text(accountApplication.status, 32),
+        reviewNote: text(accountApplication.reviewNote, 500),
+        submittedAt: dateString(accountApplication.createdAt),
+        reviewedAt: dateString(accountApplication.reviewedAt),
+      } : null,
       accounts,
       transactions,
       beneficiaries: preferences.beneficiaries,
@@ -704,6 +728,7 @@ export async function getUserDashboard(actor: DemoActor) {
       paymentMethods: methodsSnapshot.docs.map(paymentMethodView),
       deposits: sortByDate(depositsSnapshot.docs.map(depositRequestView)),
       cardApplications: sortByDate(cardAppsSnapshot.docs.map(cardApplicationView)),
+      transfers: sortByDate(transfersSnapshot.docs.map(userTransferRequestView)),
       settings: {
         currency: settings.currency,
         depositServiceCharge: amountFromMinor(settings.depositServiceChargeMinor),
