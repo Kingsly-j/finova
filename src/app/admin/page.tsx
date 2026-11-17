@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
 import { firebaseAuth } from "@/lib/firebase";
@@ -155,7 +155,6 @@ function AdminContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [revealed, setRevealed] = useState(() => searchParams.get("access") === "finova");
-  const typedKeyword = useRef("");
   const [authReady, setAuthReady] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [overview, setOverview] = useState<AdminOverview | null>(null);
@@ -169,20 +168,6 @@ function AdminContent() {
   useEffect(() => {
     if (searchParams.get("access") === "finova") setRevealed(true);
   }, [searchParams]);
-
-  useEffect(() => {
-    const revealOnKeyword = (event: KeyboardEvent) => {
-      const target = event.target;
-      if (target instanceof HTMLElement && target.closest("input, textarea, select, [contenteditable='true']")) return;
-      if (event.key.length !== 1) return;
-      typedKeyword.current = `${typedKeyword.current}${event.key.toLowerCase()}`.slice(-6);
-      if (typedKeyword.current !== "finova") return;
-      setRevealed(true);
-      router.replace("/admin?access=finova");
-    };
-    window.addEventListener("keydown", revealOnKeyword);
-    return () => window.removeEventListener("keydown", revealOnKeyword);
-  }, [router]);
 
   const refresh = useCallback(async () => {
     if (!firebaseAuth.currentUser) return;

@@ -28,6 +28,11 @@ export default function BankingPage() {
     const params = new URLSearchParams(window.location.search);
     const registering = params.get("mode") === "register";
     const otpFlow = params.get("mode") === "register" && params.get("step") === "verify";
+    const adminDestination = params.get("next") === "admin";
+    if (user && adminDestination && !otpFlow) {
+      router.replace("/admin?access=finova");
+      return;
+    }
     if (user && otpFlow) {
       setSignedIn(false);
       return;

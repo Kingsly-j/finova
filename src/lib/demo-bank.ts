@@ -3,7 +3,7 @@ import "server-only";
 import { createHash, randomBytes, randomInt, scryptSync, timingSafeEqual } from "node:crypto";
 import { Timestamp, type DocumentData, type DocumentSnapshot, type Transaction } from "firebase-admin/firestore";
 import { getFirebaseAdmin } from "@/lib/firebase-admin";
-import { queueActivityEmail, sendTransactionalEmail } from "@/lib/email-notifications";
+import { queueActivityEmail, sendEmailVerificationCode } from "@/lib/email-notifications";
 
 const SETTINGS_ID = "operations";
 const MAX_AMOUNT_MINOR = 1_000_000_000_00;
@@ -408,10 +408,9 @@ export async function sendAccountEmailOtp(actor: DemoActor) {
     lastSentAt: Timestamp.now(),
   });
   try {
-    await sendTransactionalEmail({
+    await sendEmailVerificationCode({
       to: actor.email,
-      subject: "Your Finova email verification code",
-      text: `Your Finova one-time verification code is ${code}. It expires in 10 minutes. If you did not request this code, you can ignore this email.`,
+      code,
       eventId: `email-otp:${actor.uid}:${Date.now()}`,
     });
   } catch (error) {

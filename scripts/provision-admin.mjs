@@ -2,6 +2,9 @@ import { cert, getApp, getApps, initializeApp } from "firebase-admin/app";
 import { readFileSync } from "node:fs";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
+import nextEnv from "@next/env";
+
+nextEnv.loadEnvConfig(process.cwd());
 
 function env(...keys) {
   for (const key of keys) {
