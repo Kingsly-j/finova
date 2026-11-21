@@ -229,6 +229,8 @@ function accountView(snapshot: DocumentSnapshot<DocumentData>) {
   return {
     id: snapshot.id,
     name: text(value.name, 80) || "Finova Everyday",
+    ownerName: text(value.ownerName, 100),
+    ownerEmail: text(value.ownerEmail, 160),
     number: text(value.accountNumber, 32),
     type: text(value.accountType, 80) || "Personal Account",
     currency: currency(value.currency),
@@ -1461,6 +1463,17 @@ export async function getAdminOverview() {
     transfers: sortByDate(transfersSnapshot.docs.map(adminTransferView)),
     cards: sortByDate(appsSnapshot.docs.map(adminCardView)),
     accountApplications: sortByDate(accountApplicationsSnapshot.docs.map(adminAccountApplicationView)),
-    accounts: accountsSnapshot.docs.map(accountView).map(account => ({ ...account, ownerUid: text(record(accountsSnapshot.docs.find(snapshot => snapshot.id === account.id)?.data()).ownerUid, 160) })),
+    accounts: accountsSnapshot.docs.map(snapshot => {
+      const account = accountView(snapshot);
+      const value = record(snapshot.data());
+      const ownerUid = text(value.ownerUid, 160);
+      const profile = record(usersSnapshot.docs.find(user => user.id === ownerUid)?.data());
+      return {
+        ...account,
+        ownerUid,
+        ownerName: account.ownerName || profileName(profile, "Finova member"),
+        ownerEmail: account.ownerEmail || text(profile.email, 160),
+      };
+    }),
   };
 }
