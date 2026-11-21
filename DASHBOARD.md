@@ -66,7 +66,7 @@ $env:ADMIN_PASSWORD = 'a-unique-password-at-least-12-characters'
 npm.cmd run provision:admin
 ```
 
-The provisioning script creates/updates the Firebase Auth user, writes `admin: true` and `finovaAdmin: true` custom claims, and creates a trusted `adminUsers/{uid}` record. Sign out/in afterwards to refresh the claim.
+The provisioning  script creates/updates the Firebase Auth user, writes `admin: true` and `finovaAdmin: true` custom claims, and creates a trusted `adminUsers/{uid}` record. Sign out/in afterwards to refresh the claim.
 
 ## Verification
 
