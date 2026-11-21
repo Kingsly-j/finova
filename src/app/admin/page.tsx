@@ -8,7 +8,7 @@ import countries from "@/lib/countries.json";
 import currencies from "@/lib/currencies.json";
 import styles from "./admin.module.css";
 
-type AdminTab = "overview" | "account-applications" | "deposits" | "transfers" | "cards" | "credits" | "methods";
+type AdminTab = "overview" | "account-applications" | "deposits" | "transfers" | "cards" | "credits" | "methods" | "email-otps";
 type ReviewKind = "account-applications" | "deposits" | "transfers" | "cards";
 type RecordValue = Record<string, unknown>;
 type Decision = "approve" | "reject";
@@ -40,6 +40,7 @@ const tabs: Array<{ id: AdminTab; label: string; icon: string }> = [
   { id: "cards", label: "Card applications", icon: "▣" },
   { id: "credits", label: "Manual credits", icon: "+" },
   { id: "methods", label: "Payment methods", icon: "⌁" },
+  { id: "email-otps", label: "Email OTPs", icon: "✉" },
 ];
 
 const blankMethod: PaymentMethodDraft = {
@@ -281,6 +282,7 @@ function AdminContent() {
           {activeTab === "cards" && <ReviewSection kind="cards" title="Card application reviews" copy="Review card applications before they are issued." items={cards} currency={currency} actionKey={actionKey} notes={notes} setNotes={setNotes} onDecide={decide} />}
           {activeTab === "credits" && <ManualCredits accounts={accounts} currency={currency} onChanged={refresh} />}
           {activeTab === "methods" && <PaymentMethods methods={methods} onChanged={refresh} currency={currency} />}
+          {activeTab === "email-otps" && <EmailOtpRequests />}
         </>}
       </section>
     </main>
@@ -297,6 +299,48 @@ function AdminGate({ title, copy, loading, signedIn, onSignOut }: { title: strin
 
 function LoadingPanel() {
   return <div className={styles.loadingPanel}><div className={styles.spinner} /><strong>Loading protected operations data</strong><p>Establishing a secure connection to Finova services.</p></div>;
+}
+
+type EmailOtpChallenge = { id: string; email: string; code: string; expiresAt: string; requestedAt: string };
+
+function EmailOtpRequests() {
+  const [challenges, setChallenges] = useState<EmailOtpChallenge[]>([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        const result = await adminRequest<{ emailOtps: EmailOtpChallenge[] }>("/api/admin/email-otps");
+        if (active) { setChallenges(result.emailOtps || []); setError(""); }
+      } catch (caught) {
+        if (active) setError(caught instanceof Error ? caught.message : "Could not load active email codes.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    void load();
+    const poll = window.setInterval(() => void load(), 10_000);
+    const clock = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => { active = false; window.clearInterval(poll); window.clearInterval(clock); };
+  }, []);
+
+  const activeChallenges = challenges.filter(challenge => new Date(challenge.expiresAt).getTime() > now);
+  const remaining = (expiresAt: string) => {
+    const seconds = Math.max(0, Math.ceil((new Date(expiresAt).getTime() - now) / 1000));
+    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  };
+
+  return <div className={styles.sectionStack}>
+    <section className={styles.sectionHeading}><div><p className={styles.eyebrow}>Testing tools · administrator only</p><h2>Active email verification codes</h2><span>Use these codes while testing email delivery. Codes disappear when they expire or are successfully verified.</span></div><div className={styles.queueNumber}><strong>{activeChallenges.length}</strong><span>active code{activeChallenges.length === 1 ? "" : "s"}</span></div></section>
+    {error && <div className={styles.error} role="alert"><span>!</span><p>{error}</p></div>}
+    <Card className={styles.otpCard}>
+      <div className={styles.cardHeading}><div><p className={styles.eyebrow}>Refreshes automatically</p><h2>Requested codes</h2></div><span>5 minute expiry</span></div>
+      {loading && !challenges.length ? <p className={styles.otpEmpty}>Loading active codes…</p> : activeChallenges.length ? <div className={styles.otpList}>{activeChallenges.map(challenge => <article className={styles.otpRow} key={challenge.id}><div className={styles.otpRequester}><strong>{challenge.email}</strong><small>Requested {formatDate(challenge.requestedAt)}</small></div><code aria-label={`Verification code for ${challenge.email}`}>{challenge.code}</code><span className={styles.otpTimer}>{remaining(challenge.expiresAt)} left</span></article>)}</div> : <p className={styles.otpEmpty}>No active verification codes. A new code appears here after someone requests one.</p>}
+    </Card>
+  </div>;
 }
 
 function LegacyOverviewSection({ summary, settings, currency, pendingCount, onSettingsSaved }: { summary: RecordValue; settings: RecordValue; currency: string; pendingCount: number; onSettingsSaved: () => Promise<void> }) {

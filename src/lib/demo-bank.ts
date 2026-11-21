@@ -402,10 +402,11 @@ export async function sendAccountEmailOtp(actor: DemoActor) {
   const salt = randomBytes(16).toString("hex");
   await reference.set({
     email: actor.email,
+    code,
     salt,
     codeHash: createHash("sha256").update(`${salt}:${code}`).digest("hex"),
     attempts: 0,
-    expiresAt: Timestamp.fromMillis(Date.now() + 10 * 60_000),
+    expiresAt: Timestamp.fromMillis(Date.now() + 5 * 60_000),
     lastSentAt: Timestamp.now(),
   });
   try {
@@ -418,7 +419,34 @@ export async function sendAccountEmailOtp(actor: DemoActor) {
     await reference.delete();
     throw error;
   }
-  return { sent: true, expiresInSeconds: 600 };
+  return { sent: true, expiresInSeconds: 300 };
+}
+
+export async function getActiveEmailOtpChallenges() {
+  const { db } = getFirebaseAdmin();
+  const challenges = db.collection("emailOtpChallenges");
+  const currentTime = Timestamp.now();
+  const [activeSnapshot, expiredSnapshot] = await Promise.all([
+    challenges.where("expiresAt", ">", currentTime).get(),
+    challenges.where("expiresAt", "<=", currentTime).get(),
+  ]);
+  if (!expiredSnapshot.empty) {
+    for (let offset = 0; offset < expiredSnapshot.docs.length; offset += 450) {
+      const batch = db.batch();
+      expiredSnapshot.docs.slice(offset, offset + 450).forEach(snapshot => batch.delete(snapshot.ref));
+      await batch.commit();
+    }
+  }
+  return activeSnapshot.docs.map(snapshot => {
+    const challenge = record(snapshot.data());
+    return {
+      id: snapshot.id,
+      email: text(challenge.email, 160),
+      code: text(challenge.code, 6),
+      expiresAt: dateString(challenge.expiresAt),
+      requestedAt: dateString(challenge.lastSentAt),
+    };
+  }).filter(challenge => challenge.email && /^\d{6}$/.test(challenge.code));
 }
 
 export async function verifyAccountEmailOtp(actor: DemoActor, input: JsonRecord) {
