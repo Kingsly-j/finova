@@ -45,6 +45,7 @@ export type Profile = {
   country: string;
   photoURL: string;
   username: string;
+  preferredCurrency: string;
 };
 export type PaymentMethod = { id: string; name: string; type: string; instructions: string; addressOrLink: string; enabled: boolean };
 export type Deposit = { id: string; accountId: string; amount: number; serviceCharge?: number; currency: string; paymentMethodName: string; instructions: string; addressOrLink: string; reference: string; status: string; proofStoragePath: string; createdAt: string; reviewNote: string };
@@ -78,7 +79,7 @@ export class FinovaApiError extends Error {
   }
 }
 
-const emptyProfile: Profile = { displayName: "Finova member", firstName: "", lastName: "", email: "", phone: "", country: "", photoURL: "", username: "" };
+const emptyProfile: Profile = { displayName: "Finova member", firstName: "", lastName: "", email: "", phone: "", country: "", photoURL: "", username: "", preferredCurrency: "USD" };
 const emptyWorkspace: Workspace = {
   version: 3,
   dark: false,
@@ -135,6 +136,7 @@ function normalize(raw: unknown, user?: User | null): Workspace {
       country: typeof profile.country === "string" ? profile.country : "",
       photoURL: typeof profile.photoURL === "string" ? profile.photoURL : "",
       username: typeof profile.username === "string" ? profile.username : "",
+      preferredCurrency: typeof profile.preferredCurrency === "string" ? profile.preferredCurrency : "USD",
     },
     accounts: strings<Account>(value.accounts),
     transactions: strings<Transaction>(value.transactions),

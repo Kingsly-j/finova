@@ -314,6 +314,7 @@ function profileFields(input: JsonRecord, actor: DemoActor) {
     email: actor.email || text(input.email, 160),
     phone: text(input.phone, 32),
     country: text(input.country, 80),
+    preferredCurrency: currency(input.preferredCurrency, currency(input.currency, DEFAULT_SETTINGS.currency)),
     photoURL: text(input.photoURL, 1_200),
   };
 }
@@ -710,6 +711,7 @@ export async function getUserDashboard(actor: DemoActor) {
         country: text(profile.country, 80),
         photoURL: text(profile.photoURL, 1_200),
         username: text(profile.username, 60),
+        preferredCurrency: currency(profile.preferredCurrency, settings.currency),
       },
       accountApplication: accountApplicationSnapshot.exists ? {
         status: text(accountApplication.status, 32),
