@@ -3,7 +3,7 @@ import "server-only";
 import { createHash, randomBytes, randomInt, scryptSync, timingSafeEqual } from "node:crypto";
 import { Timestamp, type DocumentData, type DocumentSnapshot, type Transaction } from "firebase-admin/firestore";
 import { getFirebaseAdmin } from "@/lib/firebase-admin";
-import { queueActivityEmail, sendEmailVerificationCode } from "@/lib/email-notifications";
+import { queueActivityEmail, sendEmailVerificationCode, sendTransactionalEmail } from "@/lib/email-notifications";
 
 const SETTINGS_ID = "operations";
 const MAX_AMOUNT_MINOR = 1_000_000_000_00;
