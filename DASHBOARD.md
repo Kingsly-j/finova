@@ -5,7 +5,7 @@ Finova is a controlled demonstration environment. It has no connected bank rails
 ## User flow
 
 - Firebase Authentication provides registration, sign-in, password reset, and sign-out. New registrants verify an emailed six-digit OTP before their details enter the administrator review queue.
-- For local development without Resend configured, email OTPs are printed in the Next.js server terminal as `[Finova development OTP]`. This fallback is disabled in production; configure `RESEND_API_KEY` and `RESEND_FROM_EMAIL` to send email.
+- For local development without Resend configured, email OTPs are printed in the Next.js server terminal as `[Finova development OTP]`. In deployment, configure `RESEND_API_KEY` and `RESEND_FROM_EMAIL` to send email. Set `EMAIL_OTP_TEST_MODE=true` temporarily to skip delivery while testing; active codes appear only in Admin > Email OTPs and expire after five minutes. Turn test mode off when email delivery is ready.
 - The pending registration is disabled in Firebase Authentication. No user profile or bank account is created until an administrator approves the application; approval creates one zero-balance account and enables sign-in.
 - Dashboard balances, account activity, cards, deposit requests, and transfer requests are read through authenticated server APIs.
 - Users can update a profile, appearance, internal recipients, notifications, and support tickets.

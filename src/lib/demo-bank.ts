@@ -409,8 +409,9 @@ export async function sendAccountEmailOtp(actor: DemoActor) {
     expiresAt: Timestamp.fromMillis(Date.now() + 5 * 60_000),
     lastSentAt: Timestamp.now(),
   });
+  let delivery: "email" | "admin-dashboard";
   try {
-    await sendEmailVerificationCode({
+    delivery = await sendEmailVerificationCode({
       to: actor.email,
       code,
       eventId: `email-otp:${actor.uid}:${Date.now()}`,
@@ -419,7 +420,7 @@ export async function sendAccountEmailOtp(actor: DemoActor) {
     await reference.delete();
     throw error;
   }
-  return { sent: true, expiresInSeconds: 300 };
+  return { sent: true, expiresInSeconds: 300, delivery };
 }
 
 export async function getActiveEmailOtpChallenges() {

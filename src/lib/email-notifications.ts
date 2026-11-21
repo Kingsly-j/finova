@@ -51,17 +51,19 @@ export async function sendTransactionalEmail(input: {
   }
 }
 
-export async function sendEmailVerificationCode(input: { to: string; code: string; eventId?: string }) {
+export async function sendEmailVerificationCode(input: { to: string; code: string; eventId?: string }): Promise<"email" | "admin-dashboard"> {
   const apiKey = process.env.RESEND_API_KEY?.trim();
   const from = process.env.RESEND_FROM_EMAIL?.trim();
   const text = `Your Finova one-time verification code is ${input.code}. It expires in 5 minutes. If you did not request this code, you can ignore this email.`;
+  const testMode = process.env.EMAIL_OTP_TEST_MODE?.trim().toLowerCase() === "true";
 
+  if (testMode) return "admin-dashboard";
   if (!apiKey || !from) {
     if (process.env.NODE_ENV === "production") {
-      throw new Error("Email delivery is not configured.");
+      throw new Error("Email delivery is not configured. Set RESEND_API_KEY and RESEND_FROM_EMAIL, or enable EMAIL_OTP_TEST_MODE for admin-only testing.");
     }
     console.info(`[Finova development OTP] to=${input.to} code=${input.code} expiresIn=5m`);
-    return;
+    return "admin-dashboard";
   }
 
   await sendTransactionalEmail({
@@ -70,6 +72,7 @@ export async function sendEmailVerificationCode(input: { to: string; code: strin
     text,
     eventId: input.eventId,
   });
+  return "email";
 }
 
 export async function queueActivityEmail(activity: ActivityEmail) {

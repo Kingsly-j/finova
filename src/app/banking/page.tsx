@@ -172,7 +172,7 @@ function RegisterScreen({ onLogin }: { onLogin: () => void }) {
       const result = await response.json().catch(() => null);
       if (!response.ok) throw new Error(typeof result?.error === "string" ? result.error : "We could not send an email verification code.");
       sessionStorage.setItem("finova.pending-application", JSON.stringify(profile));
-      setMessage("");
+      setMessage(result?.delivery === "admin-dashboard" ? "Testing mode is on. Find this code in Admin → Email OTPs; no email was sent." : "");
       window.history.replaceState(null, "", "/banking?mode=register&step=verify");
       setPendingProfile(profile);
       setOtpPending(true);
@@ -231,7 +231,7 @@ function RegisterScreen({ onLogin }: { onLogin: () => void }) {
       const response = await fetch("/api/auth/email-otp", { method: "POST", headers: { Authorization: `Bearer ${await user.getIdToken()}` } });
       const result = await response.json().catch(() => null);
       if (!response.ok) throw new Error(typeof result?.error === "string" ? result.error : "We could not resend the code.");
-      setMessage("A new code has been sent to your email.");
+      setMessage(result?.delivery === "admin-dashboard" ? "Testing mode is on. Find the new code in Admin → Email OTPs; no email was sent." : "A new code has been sent to your email.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "We could not resend the code.");
     }
@@ -259,7 +259,7 @@ function PasswordStrength({ value }: { value: string }) {
 }
 
 function EmailOtpScreen({ email, value, onChange, onSubmit, onResend, busy, error, message }: { email: string; value: string; onChange: (value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onResend: () => void; busy: boolean; error: string; message: string }) {
-  return <main className="registerPage"><div className="registerGlow registerGlowOne" /><div className="registerGlow registerGlowTwo" /><section className="registerShell"><div className="registerBrand"><Brand /></div><div className="registerCard"><header className="registerHeader"><div className="registerIcon">✉</div><h1>Verify your email</h1><p>Enter the six-digit code sent to {email}.</p></header><form onSubmit={onSubmit}><label className="otpLabel">Email verification code<input value={value} onChange={event => onChange(event.target.value)} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required placeholder="000000" /></label>{error && <p className="formError">{error}</p>}{message && <p className="formSuccess">{message}</p>}<button className="registerCreate otpSubmit" disabled={busy || value.length !== 6}>{busy ? "Verifying…" : "Verify and submit for review"}</button><button className="otpResend" type="button" onClick={onResend} disabled={busy}>Resend code</button></form><p className="otpExpiry">The code expires after 5 minutes. You’ll see an account review screen after verification.</p></div></section></main>;
+  return <main className="registerPage"><div className="registerGlow registerGlowOne" /><div className="registerGlow registerGlowTwo" /><section className="registerShell"><div className="registerBrand"><Brand /></div><div className="registerCard"><header className="registerHeader"><div className="registerIcon">✉</div><h1>Verify your email</h1><p>{message.startsWith("Testing mode") ? "Email delivery is disabled for testing." : `Enter the six-digit code sent to ${email}.`}</p></header><form onSubmit={onSubmit}><label className="otpLabel">Email verification code<input value={value} onChange={event => onChange(event.target.value)} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required placeholder="000000" /></label>{error && <p className="formError">{error}</p>}{message && <p className="formSuccess">{message}</p>}<button className="registerCreate otpSubmit" disabled={busy || value.length !== 6}>{busy ? "Verifying…" : "Verify and submit for review"}</button><button className="otpResend" type="button" onClick={onResend} disabled={busy}>Resend code</button></form><p className="otpExpiry">The code expires after 5 minutes. You’ll see an account review screen after verification.</p></div></section></main>;
 }
 
 function ReviewScreen({ onBack }: { onBack: () => void }) {
