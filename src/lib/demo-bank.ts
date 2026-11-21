@@ -851,6 +851,7 @@ export async function createDepositRequest(actor: DemoActor, input: JsonRecord) 
     uid: actor.uid, email: actor.email || text(profile.email, 160), name: profileName(profile, actor.displayName || "Finova member"),
     eventId: `deposit-created:${id}`, subject: "Deposit request received",
     text: `Your deposit request ${id} for ${amountFromMinor(amountMinor)} ${currency(account.currency)} was received. The ${amountFromMinor(feeMinor)} service charge is reserved during review and released if the request is rejected.`,
+    transactional: true,
   });
   return { deposit: depositRequestView(saved) };
 }
@@ -880,6 +881,7 @@ export async function submitDepositProof(actor: DemoActor, depositId: string, in
     uid: actor.uid, email: actor.email, name: actor.displayName || "Finova member",
     eventId: `deposit-proof:${depositReference.id}`, subject: "Deposit payment proof submitted",
     text: `Payment proof for deposit request ${depositReference.id} has been submitted and is awaiting administrator review.`,
+    transactional: true,
   });
   return { deposit: depositRequestView(await depositReference.get()) };
 }
@@ -980,6 +982,7 @@ export async function createInternalTransfer(actor: DemoActor, input: JsonRecord
     uid: actor.uid, email: actor.email, name: actor.displayName || "Finova member",
     eventId: `transfer-created:${id}`, subject: "Finova transfer submitted",
     text: `Your transfer request ${id} for ${quote.amount} ${quote.currency} has been submitted and is awaiting administrator review.`,
+    transactional: true,
   });
   return { transfer: { id, status: "pending", ...quote } };
 }
@@ -1050,18 +1053,17 @@ function ensurePending(value: JsonRecord, label: string) {
   if (text(value.status, 32) !== "pending") throw new DemoBankError(`This ${label} has already been reviewed.`, 409);
 }
 
-async function notifyOwner(recordValue: JsonRecord, eventId: string, subject: string, textBody: string) {
+async function notifyOwner(recordValue: JsonRecord, eventId: string, subject: string, textBody: string, transactional = false) {
   const uid = text(recordValue.ownerUid, 160);
   if (!uid) return;
-  const profileSnapshot = await getFirebaseAdmin().db.collection("users").doc(uid).get();
-  const profile = record(profileSnapshot.data());
   await queueActivityEmail({
     uid,
-    email: text(recordValue.ownerEmail, 160) || text(profile.email, 160),
-    name: profileName(profile, text(recordValue.ownerName, 100) || "Finova member"),
+    email: text(recordValue.ownerEmail, 160),
+    name: text(recordValue.ownerName, 100) || "Finova member",
     eventId,
     subject,
     text: textBody,
+    transactional,
   });
 }
 
@@ -1115,7 +1117,7 @@ export async function decideDeposit(admin: DemoActor, id: string, action: "appro
     audit(transaction, { actorUid: admin.uid, action: "deposit.approved", resourceType: "depositRequest", resourceId: reference.id, detail: { amountMinor } });
   });
   const reviewedDeposit = record((await reference.get()).data());
-  await notifyOwner(reviewedDeposit, `deposit-${action}:${reference.id}`, `Deposit ${action === "approve" ? "approved" : "rejected"}`, `Your deposit request ${reference.id} was ${action === "approve" ? "approved" : "rejected"}.${text(reviewedDeposit.reviewNote, 500) ? ` Review note: ${text(reviewedDeposit.reviewNote, 500)}` : ""}`);
+  await notifyOwner(reviewedDeposit, `deposit-${action}:${reference.id}`, `Deposit ${action === "approve" ? "approved" : "rejected"}`, `Your deposit request ${reference.id} was ${action === "approve" ? "approved" : "rejected"}.${text(reviewedDeposit.reviewNote, 500) ? ` Review note: ${text(reviewedDeposit.reviewNote, 500)}` : ""}`, true);
   return { ok: true };
 }
 
@@ -1169,9 +1171,9 @@ export async function decideTransfer(admin: DemoActor, id: string, action: "appr
     audit(transaction, { actorUid: admin.uid, action: "transfer.approved", resourceType: "transferRequest", resourceId: reference.id, detail: { amountMinor, feeMinor } });
   });
   const reviewedTransfer = record((await reference.get()).data());
-  await notifyOwner(reviewedTransfer, `transfer-${action}:${reference.id}`, `Finova transfer ${action === "approve" ? "approved" : "rejected"}`, `Your transfer request ${reference.id} was ${action === "approve" ? "approved" : "rejected"}.${text(reviewedTransfer.reviewNote, 500) ? ` Review note: ${text(reviewedTransfer.reviewNote, 500)}` : ""}`);
+  await notifyOwner(reviewedTransfer, `transfer-${action}:${reference.id}`, `Finova transfer ${action === "approve" ? "approved" : "rejected"}`, `Your transfer request ${reference.id} was ${action === "approve" ? "approved" : "rejected"}.${text(reviewedTransfer.reviewNote, 500) ? ` Review note: ${text(reviewedTransfer.reviewNote, 500)}` : ""}`, true);
   if (action === "approve") {
-    await notifyOwner({ ownerUid: reviewedTransfer.recipientUid, ownerName: reviewedTransfer.recipientName }, `transfer-received:${reference.id}`, "Incoming Finova transfer", `An incoming transfer of ${amountFromMinor(safeInteger(reviewedTransfer.amountMinor))} ${currency(reviewedTransfer.currency)} has been credited to your Finova account.`);
+    await notifyOwner({ ownerUid: reviewedTransfer.recipientUid, ownerName: reviewedTransfer.recipientName }, `transfer-received:${reference.id}`, "Incoming Finova transfer", `An incoming transfer of ${amountFromMinor(safeInteger(reviewedTransfer.amountMinor))} ${currency(reviewedTransfer.currency)} has been credited to your Finova account.`, true);
   }
   return { ok: true };
 }

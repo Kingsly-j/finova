@@ -54,11 +54,20 @@ export default function BankingPage() {
 
 function AuthScreen() {
   const [mode, setMode] = useState<Mode>(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mode") === "register" ? "register" : "login");
-  if (mode === "register") return <RegisterScreen onLogin={() => setMode("login")} />;
-  return <ReferenceAuth mode={mode} onLogin={() => setMode("login")} onRegister={() => setMode("register")} onReset={() => setMode("reset")} />;
+  const showLogin = () => {
+    setMode("login");
+    const params = new URLSearchParams(window.location.search);
+    params.delete("mode");
+    params.delete("step");
+    const query = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+  };
+  if (mode === "register") return <RegisterScreen onLogin={showLogin} />;
+  return <ReferenceAuth mode={mode} onLogin={showLogin} onRegister={() => setMode("register")} onReset={() => setMode("reset")} />;
 }
 
 function ReferenceAuth({ mode, onLogin, onRegister, onReset }: { mode: Exclude<Mode, "register">; onLogin: () => void; onRegister: () => void; onReset: () => void }) {
+  const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -88,6 +97,8 @@ function ReferenceAuth({ mode, onLogin, onRegister, onReset }: { mode: Exclude<M
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify({ event: "login" }),
         }).catch(() => undefined);
+        const destination = new URLSearchParams(window.location.search).get("next") === "admin" ? "/admin?access=finova" : "/dashboard";
+        router.replace(destination);
       }
     } catch (caught) {
       const code = (caught as { code?: string }).code;

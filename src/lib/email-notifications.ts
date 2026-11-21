@@ -10,6 +10,7 @@ type ActivityEmail = {
   eventId: string;
   subject: string;
   text: string;
+  transactional?: boolean;
 };
 
 function requiredEnvironment(name: string) {
@@ -87,12 +88,24 @@ export async function sendEmailVerificationCode(input: { to: string; code: strin
 }
 
 export async function queueActivityEmail(activity: ActivityEmail) {
-  const email = activity.email?.trim().toLowerCase();
-  if (!email) return;
+  let profileData: Record<string, unknown> = {};
+  const suppliedEmail = activity.email?.trim().toLowerCase() || "";
   try {
     const profile = await getFirebaseAdmin().db.collection("users").doc(activity.uid).get();
-    if (profile.data()?.emailNotificationsEnabled === false) return;
+    profileData = profile.data() || {};
+  } catch (error) {
+    console.error("Could not load Finova email preferences", { reason: error instanceof Error ? error.name : "unknown_error" });
+  }
 
+  if (!activity.transactional && profileData.emailNotificationsEnabled === false) return;
+  const profileEmail = typeof profileData.email === "string" ? profileData.email.trim().toLowerCase() : "";
+  const email = suppliedEmail || profileEmail;
+  if (!email) {
+    console.warn("Finova activity email skipped", { reason: "recipient_unavailable" });
+    return;
+  }
+
+  try {
     const name = activity.name?.trim() || "Finova member";
     await sendTransactionalEmail({
       to: email,
@@ -101,6 +114,6 @@ export async function queueActivityEmail(activity: ActivityEmail) {
       eventId: activity.eventId,
     });
   } catch (error) {
-    console.error("Could not send Finova activity email", error);
+    console.error("Could not send Finova activity email", { reason: error instanceof Error ? error.message : "unknown_error" });
   }
 }
