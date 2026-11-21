@@ -24,30 +24,41 @@ function escapeHtml(value: string) {
   })[character]!);
 }
 
+function resendFromAddress() {
+  const configuredFrom = requiredEnvironment("RESEND_FROM_EMAIL");
+  return configuredFrom.includes("<") ? configuredFrom : `Setiia Verification <${configuredFrom}>`;
+}
+
 export async function sendTransactionalEmail(input: {
   to: string;
   subject: string;
   text: string;
   eventId?: string;
 }) {
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${requiredEnvironment("RESEND_API_KEY")}`,
-      "Content-Type": "application/json",
-      ...(input.eventId ? { "Idempotency-Key": createHash("sha256").update(input.eventId).digest("hex") } : {}),
-    },
-    body: JSON.stringify({
-      from: requiredEnvironment("RESEND_FROM_EMAIL"),
-      to: [input.to],
-      subject: input.subject,
-      text: input.text,
-      html: `<div style="font-family:Arial,sans-serif;white-space:pre-line">${escapeHtml(input.text)}</div>`,
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${requiredEnvironment("RESEND_API_KEY")}`,
+        "Content-Type": "application/json",
+        ...(input.eventId ? { "Idempotency-Key": createHash("sha256").update(input.eventId).digest("hex") } : {}),
+      },
+      body: JSON.stringify({
+        from: resendFromAddress(),
+        to: [input.to],
+        subject: input.subject,
+        text: input.text,
+        html: `<div style="font-family:Arial,sans-serif;white-space:pre-line">${escapeHtml(input.text)}</div>`,
+      }),
+    });
+  } catch {
+    console.error("Resend email delivery failed", { reason: "network_error" });
+    throw new Error("Email delivery failed. Please try again later.");
+  }
   if (!response.ok) {
-    const detail = (await response.text()).slice(0, 500);
-    throw new Error(`Resend rejected the email (${response.status}): ${detail}`);
+    console.error("Resend email delivery failed", { reason: "provider_rejection", status: response.status });
+    throw new Error("Email delivery failed. Please try again later.");
   }
 }
 
@@ -62,7 +73,7 @@ export async function sendEmailVerificationCode(input: { to: string; code: strin
     if (process.env.NODE_ENV === "production") {
       throw new Error("Email delivery is not configured. Set RESEND_API_KEY and RESEND_FROM_EMAIL, or enable EMAIL_OTP_TEST_MODE for admin-only testing.");
     }
-    console.info(`[Finova development OTP] to=${input.to} code=${input.code} expiresIn=5m`);
+    console.info("Email OTP delivery is not configured; no email was sent.");
     return "admin-dashboard";
   }
 
